@@ -52,21 +52,20 @@ const handleCallback = async () => {
     const response = await logtoApi.handleCallback({ code, state })
 
     if (response.success && response.data) {
-      // 保存用户信息和 token
-      userStore.token = response.data.tokens.access_token
-      userStore.userInfo = response.data.user
-      localStorage.setItem('token', response.data.tokens.access_token)
-      localStorage.setItem('refreshToken', response.data.tokens.logto_access_token || '')
-      localStorage.setItem('userInfo', JSON.stringify(response.data.user))
+      // 使用专门的 Logto 登录处理方法
+      const result = await userStore.loginWithLogto(response.data)
+      
+      if (result.success) {
+        success.value = true
+        isLoading.value = false
 
-      success.value = true
-      isLoading.value = false
-
-      // 延迟跳转
-      setTimeout(() => {
-        router.push('/')
-        window.location.reload() // 刷新页面以更新状态
-      }, 1500)
+        // 延迟跳转
+        setTimeout(() => {
+          router.push('/')
+        }, 1500)
+      } else {
+        throw new Error(result.message)
+      }
     } else {
       throw new Error(response.message || '登录失败')
     }

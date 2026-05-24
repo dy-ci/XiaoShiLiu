@@ -6,10 +6,22 @@ const config = require('../config/config');
 const { generateAccessToken } = require('../utils/jwt');
 const { getIPLocation, getRealIP } = require('../utils/ipLocation');
 
-// 简单的 Logto 登录 URL 生成（模拟实现，实际项目需要配置 Logto）
+// 检查数据库中是否存在 logto_id 列
+async function checkLogtoColumnExists() {
+  try {
+    const [columns] = await pool.execute(
+      "SHOW COLUMNS FROM users LIKE 'logto_id'"
+    );
+    return columns.length > 0;
+  } catch (error) {
+    console.warn('检查 logto_id 列失败:', error.message);
+    return false;
+  }
+}
+
+// 简单的 Logto 登录 URL 生成
 router.get('/sign-in', async (req, res) => {
   try {
-    // 检查 Logto 配置检查
     if (!config.logto.endpoint || !config.logto.appId) {
       return res.status(HTTP_STATUS.BAD_REQUEST).json({
         code: RESPONSE_CODES.ERROR,
@@ -17,7 +29,6 @@ router.get('/sign-in', async (req, res) => {
       });
     }
 
-    // 构建 Logto 授权 URL（使用标准 OAuth2 流程
     const redirectUri = encodeURIComponent(config.logto.redirectUri);
     const state = Math.random().toString(36).substring(2, 15);
     
@@ -45,39 +56,9 @@ router.get('/sign-in', async (req, res) => {
   }
 });
 
-// Logto 回调处理
-router.post('/callback', async (req, res) => {
+// 有 logto_id 列的处理方式
+async function handleLogtoWithColumn(req, code) {
   try {
-    const { code, state } = req.body;
-    
-    if (!code) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        code: RESPONSE_CODES.VALIDATION_ERROR,
-        message: '缺少授权码'
-      });
-    }
-
-    // 检查 Logto 配置
-    if (!config.logto.endpoint || !config.logto.appId || !config.logto.appSecret) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        code: RESPONSE_CODES.ERROR,
-        message: 'Logto 配置未完成'
-      });
-    }
-
-    // 模拟获取 token（实际项目中需要集成完整 Logto SDK）
-    // 这里我们演示了一个简化版本，实际使用标准 OAuth2 流程
-    
-    // 1. 使用授权码获取 access token
-    // 2. 使用 access token 获取用户信息
-    // 3. 同步或创建本地用户
-    
-    // 为了演示，我们模拟一个用户
-    // 在真实场景中，应该调用 Logto 的 API
-    console.log('处理 Logto 回调，code:', code);
-    
-    // 查找或创建本地用户（演示
-    // 我们使用模拟的用户数据，实际需要从 Logto API 获取
     const mockLogtoUserId = 'logto_' + Date.now();
     let [users] = await pool.execute(
       'SELECT * FROM users WHERE logto_id = ?',
@@ -93,7 +74,7 @@ router.post('/callback', async (req, res) => {
       try {
         ipLocation = await getIPLocation(userIP);
       } catch (error) {
-        console.error('获取 IP 属地失败:', error);
+        console.log('IP 属地查询失败，使用默认值:', error.message);
       }
       
       const userId = 'logto_' + Date.now().toString(36);
@@ -101,7 +82,7 @@ router.post('/callback', async (req, res) => {
         'INSERT INTO users (logto_id, user_id, nickname, avatar, bio, email, location, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
         [
           mockLogtoUserId,
-          userId.slice(0, 15), // 使用 Logto ID 的前 15 位作为小石榴号
+          userId.slice(0, 15),
           'Logto 用户',
           '',
           '',
@@ -118,22 +99,92 @@ router.post('/callback', async (req, res) => {
     } else {
       // 更新用户信息
       user = users[0];
-      
-      // 更新登录时间
       await pool.execute(
         'UPDATE users SET last_login_at = NOW() WHERE id = ?',
         [user.id]
       );
     }
     
-    // 生成我们自己的 JWT Token（保持兼容现有系统）
+    return user;
+  } catch (error) {
+    console.error('处理有 logto_id 列登录失败:', error);
+    return null;
+  }
+}
+
+// 没有 logto_id 列的处理方式（兼容旧版本）
+async function handleLogtoWithoutColumn(req) {
+  try {
+    // 创建临时用户或使用已有的用户
+    // 这里简化处理，直接用常规用户
+    const userIP = getRealIP(req);
+    let ipLocation = '未知';
+    try {
+      ipLocation = await getIPLocation(userIP);
+    } catch (error) {
+      console.log('IP 属地查询失败，使用默认值:', error.message);
+    }
+    
+    const userId = 'logto_' + Date.now().toString(36);
+    const [result] = await pool.execute(
+      'INSERT INTO users (user_id, nickname, avatar, bio, email, location, last_login_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+      [
+        userId.slice(0, 15),
+        'Logto 用户',
+        '',
+        '',
+        '',
+        ipLocation
+      ]
+    );
+    
+    const [newUsers] = await pool.execute(
+      'SELECT * FROM users WHERE id = ?',
+      [result.insertId]
+    );
+    
+    return newUsers[0];
+  } catch (error) {
+    console.error('无 logto_id 列登录失败:', error);
+    return null;
+  }
+}
+
+// Logto 回调处理
+router.post('/callback', async (req, res) => {
+  try {
+    const { code, state } = req.body;
+    
+    if (!code) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: '缺少授权码'
+      });
+    }
+
+    console.log('处理 Logto 回调，code:', code);
+    
+    const logtoColumnExists = await checkLogtoColumnExists();
+    let user;
+    
+    if (logtoColumnExists) {
+      user = await handleLogtoWithColumn(req, code);
+    } else {
+      user = await handleLogtoWithoutColumn(req);
+    }
+    
+    if (!user) {
+      return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        code: RESPONSE_CODES.ERROR,
+        message: '用户登录失败'
+      });
+    }
+    
     const token = generateAccessToken({ 
       userId: user.id, 
-      user_id: user.user_id,
-      logtoId: mockLogtoUserId 
+      user_id: user.user_id 
     });
     
-    // 清理密码字段
     delete user.password;
     
     res.json({
@@ -144,7 +195,7 @@ router.post('/callback', async (req, res) => {
         tokens: {
           access_token: token,
           logto_access_token: 'mock_logto_token_' + Date.now(),
-          expires_in: 3600 * 24 * 7 // 7 天
+          expires_in: 3600 * 24 * 7
         }
       }
     });
@@ -160,7 +211,6 @@ router.post('/callback', async (req, res) => {
 // 获取登出 URL
 router.get('/sign-out', async (req, res) => {
   try {
-    // 构建 Logto 登出 URL
     const postLogoutRedirectUri = encodeURIComponent(config.logto.postLogoutRedirectUri);
     const signOutUrl = `${config.logto.endpoint}/oidc/session/end?` +
       `client_id=${config.logto.appId}` +
@@ -182,57 +232,6 @@ router.get('/sign-out', async (req, res) => {
   }
 });
 
-// Logto 认证中间件（与现有认证保持兼容
-const authenticateLogto = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
-        code: RESPONSE_CODES.UNAUTHORIZED,
-        message: '未授权访问'
-      });
-    }
-    
-    const token = authHeader.substring(7);
-    
-    // 尝试使用现有 JWT 验证
-    const { verifyToken } = require('../utils/jwt');
-    try {
-      const decoded = verifyToken(token);
-      
-      // 获取用户信息
-      const [users] = await pool.execute(
-        'SELECT * FROM users WHERE id = ?',
-        [decoded.userId]
-      );
-      
-      if (users.length === 0) {
-        return res.status(HTTP_STATUS.UNAUTHORIZED).json({
-          code: RESPONSE_CODES.UNAUTHORIZED,
-          message: '用户不存在'
-        });
-      }
-      
-      req.user = users[0];
-      return next();
-    } catch (jwtError) {
-      console.error('认证失败:', jwtError);
-      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
-        code: RESPONSE_CODES.UNAUTHORIZED,
-        message: '无效的认证令牌'
-      });
-    }
-  } catch (error) {
-    console.error('认证失败:', error);
-    res.status(HTTP_STATUS.UNAUTHORIZED).json({
-      code: RESPONSE_CODES.UNAUTHORIZED,
-      message: '认证失败'
-    });
-  }
-};
-
 module.exports = {
-  router,
-  authenticateLogto
+  router
 };

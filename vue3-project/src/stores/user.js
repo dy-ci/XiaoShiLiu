@@ -267,6 +267,33 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  // Logto 登录成功处理
+  const loginWithLogto = async (data) => {
+    try {
+      isLoading.value = true
+      
+      // 保存token和用户信息
+      token.value = data.tokens.access_token
+      refreshToken.value = data.tokens.logto_access_token || ''
+      userInfo.value = data.user
+
+      // 保存到localStorage
+      localStorage.setItem('token', data.tokens.access_token)
+      localStorage.setItem('refreshToken', data.tokens.logto_access_token || '')
+      localStorage.setItem('userInfo', JSON.stringify(data.user))
+
+      return { success: true }
+    } catch (error) {
+      console.error('Logto 登录失败:', error)
+      return {
+        success: false,
+        message: error.message || '网络错误，请稍后重试'
+      }
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   // 开始邮箱验证码倒计时
   const startEmailCodeCountdown = () => {
     emailCodeCountdown.value = 60
@@ -315,6 +342,7 @@ export const useUserStore = defineStore('user', () => {
     refreshUserToken,
     getUserStats,
     updateUserInfo,
+    loginWithLogto,
 
     // 邮箱验证码相关方法
     sendEmailCode,
