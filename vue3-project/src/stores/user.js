@@ -272,15 +272,23 @@ export const useUserStore = defineStore('user', () => {
     try {
       isLoading.value = true
       
+      console.log('loginWithLogto 接收的数据:', data)
+      
       // 保存token和用户信息
       token.value = data.tokens.access_token
-      refreshToken.value = data.tokens.logto_access_token || ''
+      refreshToken.value = data.tokens.refresh_token || ''
       userInfo.value = data.user
 
       // 保存到localStorage
       localStorage.setItem('token', data.tokens.access_token)
-      localStorage.setItem('refreshToken', data.tokens.logto_access_token || '')
+      localStorage.setItem('refreshToken', data.tokens.refresh_token || '')
       localStorage.setItem('userInfo', JSON.stringify(data.user))
+
+      console.log('已保存的登录信息:', {
+        token: !!token.value,
+        refreshToken: !!refreshToken.value,
+        userInfo: !!userInfo.value
+      })
 
       return { success: true }
     } catch (error) {

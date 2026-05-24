@@ -3,7 +3,7 @@ const router = express.Router();
 const { HTTP_STATUS, RESPONSE_CODES } = require('../constants');
 const { pool } = require('../config/config');
 const config = require('../config/config');
-const { generateAccessToken } = require('../utils/jwt');
+const { generateAccessToken, generateRefreshToken } = require('../utils/jwt');
 const { getIPLocation, getRealIP } = require('../utils/ipLocation');
 const axios = require('axios');
 
@@ -285,10 +285,30 @@ router.post('/callback', async (req, res) => {
       });
     }
     
-    const token = generateAccessToken({ 
-      userId: user.id, 
-      user_id: user.user_id 
-    });
+    // 生成 JWT 令牌
+    const accessToken = generateAccessToken({ userId: user.id, user_id: user.user_id });
+    const refreshToken = generateRefreshToken({ userId: user.id, user_id: user.user_id });
+    
+    // 获取用户IP和User-Agent
+    const userIP = getRealIP(req);
+    const userAgent = req.headers['user-agent'] || '';
+    
+    // 获取IP地理位置并更新用户location和最后登录时间
+    const ipLocation = await getIPLocation(userIP);
+    await pool.execute(
+      'UPDATE users SET location = ?, last_login_at = NOW() WHERE id = ?',
+      [ipLocation, user.id.toString()]
+    );
+    
+    // 清除旧会话并保存新会话
+    await pool.execute('UPDATE user_sessions SET is_active = 0 WHERE user_id = ?', [user.id.toString()]);
+    await pool.execute(
+      'INSERT INTO user_sessions (user_id, token, refresh_token, expires_at, user_agent, is_active) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), ?, 1)',
+      [user.id.toString(), accessToken, refreshToken, userAgent]
+    );
+    
+    // 更新用户对象中的location字段
+    user.location = ipLocation;
     
     delete user.password;
     
@@ -306,7 +326,8 @@ router.post('/callback', async (req, res) => {
       data: {
         user,
         tokens: {
-          access_token: token,
+          access_token: accessToken,
+          refresh_token: refreshToken,
           logto_access_token: tokenData.access_token,
           logto_refresh_token: tokenData.refresh_token || '',
           expires_in: tokenData.expires_in || 3600 * 24 * 7
