@@ -984,13 +984,8 @@ router.get('/admin/admins', authenticateToken, async (req, res) => {
       code: RESPONSE_CODES.SUCCESS,
       message: 'success',
       data: {
-        data: processedRows,
-        pagination: {
-          page,
-          limit,
-          total,
-          pages: Math.ceil(total / limit)
-        }
+        items: processedRows,
+        total
       }
     });
   } catch (error) {
@@ -1010,10 +1005,10 @@ router.post('/admin/admins', authenticateToken, async (req, res) => {
       });
     }
 
-    const { username, nickname, permissions, isSuper } = req.body;
+    const { username, logtoId, nickname, permissions, isSuper } = req.body;
 
     if (!username) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '账号不能为空' });
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '用户名不能为空' });
     }
 
     // 检查用户名是否已存在
@@ -1023,13 +1018,13 @@ router.post('/admin/admins', authenticateToken, async (req, res) => {
     );
 
     if (existingRows.length > 0) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.CONFLICT, message: '账号已存在' });
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.CONFLICT, message: '该用户名已存在' });
     }
 
     // 创建管理员（Logto关联，无需密码）
     const [result] = await pool.execute(
-      'INSERT INTO admin (username, nickname, permissions, is_super, created_at) VALUES (?, ?, ?, ?, NOW())',
-      [username, nickname || username, JSON.stringify(permissions || []), isSuper ? 1 : 0]
+      'INSERT INTO admin (username, logto_id, nickname, permissions, is_super, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+      [username, logtoId || null, nickname || username, JSON.stringify(permissions || []), isSuper ? 1 : 0]
     );
 
     res.json({
@@ -1057,7 +1052,7 @@ router.put('/admin/admins/:id', authenticateToken, async (req, res) => {
     }
 
     const adminId = req.params.id;
-    const { nickname, permissions, isSuper } = req.body;
+    const { nickname, permissions, isSuper, logtoId } = req.body;
 
     // 检查管理员是否存在
     const [adminRows] = await pool.execute(
@@ -1084,6 +1079,10 @@ router.put('/admin/admins/:id', authenticateToken, async (req, res) => {
     if (isSuper !== undefined) {
       updateFields.push('is_super = ?');
       updateValues.push(isSuper ? 1 : 0);
+    }
+    if (logtoId !== undefined) {
+      updateFields.push('logto_id = ?');
+      updateValues.push(logtoId || null);
     }
 
     if (updateFields.length > 0) {

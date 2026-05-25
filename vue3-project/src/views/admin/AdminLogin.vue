@@ -4,7 +4,7 @@
       <div class="login-card">
         <div class="login-header">
           <h1 class="login-title">悦社管理后台</h1>
-          <p class="login-subtitle">欢迎回来！请使用 Logto 云认证登录</p>
+          <p class="login-subtitle">欢迎回来！请使用 云认证 登录</p>
         </div>
 
         <div v-if="unifiedMessage" class="message" :class="messageType">
@@ -13,7 +13,7 @@
 
         <button class="login-button" @click="handleLogtoLogin" :disabled="isSubmitting">
           <span v-if="isSubmitting" class="loading-spinner"></span>
-          <span v-else>{{ isSubmitting ? '登录中...' : '使用 Logto 云认证登录' }}</span>
+          <span v-else>{{ isSubmitting ? '登录中...' : '使用 云认证 登录' }}</span>
         </button>
       </div>
     </div>

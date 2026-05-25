@@ -1,21 +1,111 @@
 <template>
   <div class="admin-management">
-    <CrudTable 
-      title="管理员管理" 
-      entity-name="管理员" 
-      api-endpoint="/admin/admins" 
-      :columns="columns" 
-      :form-fields="formFields"
-      :search-fields="searchFields" 
-      @form-opened="handleFormOpened"
-    />
+    <div class="page-header">
+      <h2>管理员管理</h2>
+      <el-button type="primary" @click="openCreateModal">
+        <el-icon><Plus /></el-icon>
+        新建管理员
+      </el-button>
+    </div>
+
+    <el-table :data="tableData" style="width: 100%" v-loading="loading">
+      <el-table-column prop="username" label="账号" width="180" />
+      <el-table-column prop="nickname" label="昵称" width="150" />
+      <el-table-column prop="isSuper" label="角色" width="120">
+        <template #default="{ row }">
+          <el-tag :type="row.isSuper ? 'danger' : 'primary'">
+            {{ row.isSuper ? '超级管理员' : '管理员' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="logtoId" label="Logto ID" show-overflow-tooltip />
+      <el-table-column prop="createdAt" label="创建时间" width="180" />
+      <el-table-column label="操作" width="200" fixed="right">
+        <template #default="{ row }">
+          <el-button link type="primary" @click="openEditModal(row)">编辑</el-button>
+          <el-button link type="danger" @click="handleDelete(row)" :disabled="row.logtoId === adminStore.admin?.logtoId">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <div class="pagination">
+      <el-pagination
+        v-model:current-page="pagination.page"
+        v-model:page-size="pagination.pageSize"
+        :total="pagination.total"
+        :page-sizes="[10, 20, 50, 100]"
+        layout="total, sizes, prev, pager, next, jumper"
+        @size-change="fetchData"
+        @current-change="fetchData"
+      />
+    </div>
+
+    <!-- 新建/编辑对话框 -->
+    <el-dialog
+      v-model="dialogVisible"
+      :title="isEdit ? '编辑管理员' : '新建管理员'"
+      width="800px"
+      @close="resetForm"
+    >
+      <el-form ref="formRef" :model="form" label-width="120px">
+        <el-form-item label="用户名" prop="username">
+          <el-input v-model="form.username" placeholder="请输入管理员用户名" :disabled="isEdit" />
+        </el-form-item>
+        <el-form-item label="Logto ID" prop="logtoId">
+          <el-input v-model="form.logtoId" placeholder="可选，留空则通过用户名匹配Logto用户" :disabled="isEdit" />
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+            建议留空，系统会在该用户首次登录时自动通过用户名匹配并关联
+          </div>
+        </el-form-item>
+        <el-form-item label="昵称" prop="nickname">
+          <el-input v-model="form.nickname" placeholder="请输入昵称" />
+        </el-form-item>
+        <el-form-item label="超级管理员" prop="isSuper">
+          <el-switch v-model="isSuper" />
+        </el-form-item>
+        <el-divider content-position="left">权限设置</el-divider>
+        <div v-if="!isSuper" class="permission-section">
+          <div class="permission-header">
+            <span class="header-title">预设角色</span>
+            <div class="role-select">
+              <el-button
+                v-for="role in roles"
+                :key="role.key"
+                :type="currentRole === role.key ? 'primary' : 'default'"
+                size="small"
+                @click="selectRole(role.key)"
+              >
+                {{ role.name }}
+              </el-button>
+            </div>
+          </div>
+          <div class="permission-groups">
+            <div v-for="group in permissionGroups" :key="group.name" class="permission-group">
+              <div class="group-title">{{ group.name }}</div>
+              <el-checkbox-group v-model="selectedPermissions" class="permission-grid">
+                <div v-for="perm in group.permissions" :key="perm.key" class="permission-item">
+                  <el-checkbox :value="perm.key" />
+                  <span class="permission-label">{{ perm.label }}</span>
+                </div>
+              </el-checkbox-group>
+            </div>
+          </div>
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSubmit" :loading="submitting">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import CrudTable from '@/views/admin/components/CrudTable.vue'
+import { ref, reactive, onMounted, computed } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
 import { useAdminStore } from '@/stores/admin'
+import { logtoApi, adminApi } from '@/api'
 
 const adminStore = useAdminStore()
 
@@ -114,44 +204,74 @@ const roles = [
   { key: 'super_admin', name: '超级管理员', description: '拥有全部权限' },
   { key: 'content_admin', name: '内容管理员', description: '管理内容相关功能' },
   { key: 'user_admin', name: '用户管理员', description: '管理用户和认证' },
-  { key: 'operator', name: '运维人员', description: '查看监控和会话' }
+  { key: 'operator', name: '运维人员', description: '查看监控和会话' },
+  { key: 'custom', name: '自定义', description: '自定义权限' }
 ]
 
-// 当前编辑的管理员权限
-const currentPermissions = ref([])
-const currentRole = ref('custom')
+// 状态
+const loading = ref(false)
+const submitting = ref(false)
+const dialogVisible = ref(false)
+const isEdit = ref(false)
+const tableData = ref([])
+const formRef = ref(null)
 const isSuper = ref(false)
+const currentRole = ref('custom')
+const selectedPermissions = ref([])
+const editId = ref(null)
 
-const columns = [
-  { key: 'username', label: '账号', sortable: false },
-  { key: 'nickname', label: '昵称', sortable: false },
-  { key: 'isSuper', label: '角色', type: 'tag', sortable: false },
-  { key: 'logtoId', label: 'Logto ID', sortable: false },
-  { key: 'createdAt', label: '创建时间', type: 'date', sortable: true }
-]
+const form = reactive({
+  username: '',
+  logtoId: '',
+  nickname: ''
+})
 
-const formFields = [
-  { key: 'username', label: '账号(Logto用户)', type: 'text', required: true, placeholder: '请输入账号' },
-  { key: 'nickname', label: '昵称', type: 'text', placeholder: '请输入昵称' },
-  { key: 'isSuper', label: '超级管理员', type: 'checkbox' }
-]
+const pagination = reactive({
+  page: 1,
+  pageSize: 20,
+  total: 0
+})
 
-const searchFields = [
-  { key: 'username', label: '账号', placeholder: '搜索账号' }
-]
-
-// 处理表单打开事件，初始化权限
-const handleFormOpened = (data) => {
-  if (data && data.permissions) {
-    currentPermissions.value = Array.isArray(data.permissions) 
-      ? [...data.permissions] 
-      : []
-    isSuper.value = data.is_super || false
-  } else {
-    currentPermissions.value = []
-    isSuper.value = false
+// 获取数据
+const fetchData = async () => {
+  loading.value = true
+  try {
+    const response = await adminApi.getAdmins({
+      page: pagination.page,
+      limit: pagination.pageSize
+    })
+    if (response.success && response.data) {
+      // 适配两种返回格式
+      tableData.value = response.data.items || response.data.data || []
+      pagination.total = response.data.total || (response.data.pagination ? response.data.pagination.total : 0)
+    }
+  } catch (error) {
+    ElMessage.error('获取数据失败')
+  } finally {
+    loading.value = false
   }
+}
+
+// 打开创建对话框
+const openCreateModal = () => {
+  isEdit.value = false
+  editId.value = null
+  dialogVisible.value = true
+}
+
+// 打开编辑对话框
+const openEditModal = (row) => {
+  isEdit.value = true
+  editId.value = row.id
+  form.username = row.username
+  form.logtoId = row.logtoId || ''
+  form.nickname = row.nickname
+  isSuper.value = row.isSuper
+  selectedPermissions.value = row.permissions || []
+  
+  // 自动判断角色
   currentRole.value = 'custom'
+  dialogVisible.value = true
 }
 
 // 选择预设角色
@@ -160,12 +280,11 @@ const selectRole = (roleKey) => {
   
   if (roleKey === 'super_admin') {
     isSuper.value = true
-    currentPermissions.value = []
+    selectedPermissions.value = []
   } else {
     isSuper.value = false
-    // 设置对应角色的权限
     if (roleKey === 'content_admin') {
-      currentPermissions.value = [
+      selectedPermissions.value = [
         'posts:view', 'posts:edit', 'posts:delete',
         'post_audit:view', 'post_audit:audit',
         'comments:view', 'comments:edit', 'comments:delete',
@@ -173,36 +292,82 @@ const selectRole = (roleKey) => {
         'tags:view', 'tags:edit', 'tags:delete', 'tags:create'
       ]
     } else if (roleKey === 'user_admin') {
-      currentPermissions.value = [
+      selectedPermissions.value = [
         'users:view', 'users:edit', 'users:delete', 'users:ban',
         'audit:view', 'audit:audit'
       ]
     } else if (roleKey === 'operator') {
-      currentPermissions.value = [
+      selectedPermissions.value = [
         'api_docs:view', 'monitor:view',
         'user_sessions:view', 'user_sessions:delete',
         'admin_sessions:view', 'admin_sessions:delete'
       ]
+    } else {
+      // 自定义角色，保留现有权限
     }
   }
 }
 
-// 切换权限
-const togglePermission = (permKey) => {
-  if (isSuper.value) return
-  
-  const index = currentPermissions.value.indexOf(permKey)
-  if (index > -1) {
-    currentPermissions.value.splice(index, 1)
-  } else {
-    currentPermissions.value.push(permKey)
+// 重置表单
+const resetForm = () => {
+  form.username = ''
+  form.logtoId = ''
+  form.nickname = ''
+  isSuper.value = false
+  selectedPermissions.value = []
+  currentRole.value = 'custom'
+  editId.value = null
+  isEdit.value = false
+}
+
+// 提交表单
+const handleSubmit = async () => {
+  submitting.value = true
+  try {
+    const data = {
+      username: form.username,
+      logtoId: form.logtoId || null,
+      nickname: form.nickname,
+      isSuper: isSuper.value,
+      permissions: isSuper.value ? [] : selectedPermissions.value
+    }
+    
+    if (isEdit.value) {
+      await adminApi.updateAdmin(editId.value, data)
+      ElMessage.success('更新成功')
+    } else {
+      await adminApi.createAdmin(data)
+      ElMessage.success('创建成功')
+    }
+    
+    dialogVisible.value = false
+    fetchData()
+  } catch (error) {
+    ElMessage.error(error.message || '操作失败')
+  } finally {
+    submitting.value = false
   }
 }
 
-// 检查是否有权限
-const hasPerm = (permKey) => {
-  return isSuper.value || currentPermissions.value.includes(permKey)
+// 删除
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm('确定要删除该管理员吗？', '提示', {
+      type: 'warning'
+    })
+    await adminApi.deleteAdmin(row.id)
+    ElMessage.success('删除成功')
+    fetchData()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
 }
+
+onMounted(() => {
+  fetchData()
+})
 </script>
 
 <style scoped>
@@ -210,51 +375,42 @@ const hasPerm = (permKey) => {
   padding: 20px;
 }
 
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.page-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.pagination {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .permission-section {
-  margin-top: 24px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-color);
+  margin-top: 16px;
 }
 
 .permission-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  justify-content: flex-end;
   margin-bottom: 16px;
 }
 
-.permission-header h4 {
-  font-size: 14px;
+.header-title {
   font-weight: 600;
-  color: var(--text-color-primary);
-  margin: 0;
 }
 
 .role-select {
   display: flex;
   gap: 8px;
-}
-
-.role-btn {
-  padding: 6px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-color-primary);
-  color: var(--text-color-primary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.role-btn:hover {
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-}
-
-.role-btn.active {
-  background: var(--primary-color);
-  border-color: var(--primary-color);
-  color: white;
 }
 
 .permission-groups {
@@ -265,15 +421,14 @@ const hasPerm = (permKey) => {
 
 .permission-group {
   background: var(--bg-color-secondary);
-  padding: 12px;
+  padding: 16px;
   border-radius: 8px;
 }
 
 .group-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-color-primary);
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .permission-grid {
@@ -286,27 +441,15 @@ const hasPerm = (permKey) => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
+  padding: 8px;
+  border-radius: 6px;
 }
 
 .permission-item:hover {
-  background: rgba(0,0,0,0.03);
-}
-
-.permission-item input {
-  cursor: pointer;
-}
-
-.permission-item.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  background: rgba(0,0,0,0.05);
 }
 
 .permission-label {
   font-size: 13px;
-  color: var(--text-color-primary);
 }
 </style>

@@ -409,54 +409,76 @@ async function checkAdminLogtoColumnExists() {
 async function findOrCreateAdmin(logtoUser, req) {
   const logtoColumnExists = await checkAdminLogtoColumnExists();
   const logtoId = logtoUser.sub;
-  const nickname = logtoUser.name || logtoUser.nickname || logtoUser.username || 'Logto 管理员';
-  const avatar = logtoUser.picture || '';
-  const email = logtoUser.email || '';
+  const logtoUsername = logtoUser.username || logtoUser.name || logtoUser.nickname || '';
+  const nickname = logtoUser.name || logtoUser.nickname || logtoUsername || 'Logto 管理员';
   
   console.log('处理管理员数据:', {
     logtoId,
-    nickname,
-    hasAvatar: !!avatar,
-    email
+    logtoUsername,
+    nickname
   });
   
+  let admin = null;
+  
   if (logtoColumnExists) {
-    console.log('检测到 admin 表 logto_id 列存在，使用 Logto ID 查找管理员');
+    console.log('检测到 admin 表 logto_id 列存在');
     
+    // 第一步：尝试通过 logto_id 查找
     let [admins] = await pool.execute(
       'SELECT * FROM admin WHERE logto_id = ?',
       [logtoId]
     );
     
-    console.log('数据库查询结果:', {
-      found: admins.length > 0,
-      adminId: admins.length > 0 ? admins[0].id : null,
-      username: admins.length > 0 ? admins[0].username : null
-    });
-    
     if (admins.length > 0) {
-      const admin = admins[0];
-      console.log('找到已存在的 Logto 管理员');
+      admin = admins[0];
+      console.log('通过 logto_id 找到管理员:', admin.username);
       return admin;
     }
     
-    console.log('未找到 Logto 管理员，无法登录（需要先在管理后台添加）');
-    return null; // 管理员需要手动创建，不能自动注册
+    console.log('未通过 logto_id 找到，尝试通过 username 匹配 Logto 用户名');
+    
+    // 第二步：尝试通过 username 匹配 Logto 的用户名
+    if (logtoUsername) {
+      let [adminsByUsername] = await pool.execute(
+        'SELECT * FROM admin WHERE username = ?',
+        [logtoUsername]
+      );
+      
+      if (adminsByUsername.length > 0) {
+        admin = adminsByUsername[0];
+        console.log('通过 username 匹配找到管理员:', admin.username);
+        
+        // 顺便更新 logto_id，方便下次快速查找
+        await pool.execute(
+          'UPDATE admin SET logto_id = ? WHERE id = ?',
+          [logtoId, admin.id]
+        );
+        console.log('已补全 logto_id 字段');
+        
+        // 重新查询带更新后的数据
+        [admins] = await pool.execute('SELECT * FROM admin WHERE id = ?', [admin.id]);
+        return admins[0];
+      }
+    }
   } else {
     console.log('admin 表 logto_id 列不存在，使用 username 查找');
     
-    // 如果没有 logto_id 列，尝试用 email 或 nickname 匹配
-    let [admins] = await pool.execute(
-      'SELECT * FROM admin WHERE username LIKE ? OR username LIKE ?',
-      [`%${email}%`, `%${nickname}%`]
-    );
-    
-    if (admins.length > 0) {
-      return admins[0];
+    if (logtoUsername) {
+      let [adminsByUsername] = await pool.execute(
+        'SELECT * FROM admin WHERE username = ?',
+        [logtoUsername]
+      );
+      
+      if (adminsByUsername.length > 0) {
+        admin = adminsByUsername[0];
+        console.log('通过 username 找到管理员:', admin.username);
+        return admin;
+      }
     }
-    
-    return null;
   }
+  
+  console.log('未找到匹配的管理员，无法登录（需要先在管理后台添加）');
+  return null;
 }
 
 // 管理员 Logto 登录 URL 生成
