@@ -28,8 +28,8 @@
                 {{ admin.isSuper ? '超级管理员' : '管理员' }}
               </span>
             </td>
-            <td>{{ admin.logtoId || '-' }}</td>
-            <td>{{ formatDate(admin.createdAt) }}</td>
+            <td>{{ admin.logto_id || admin.logtoId || '-' }}</td>
+            <td>{{ formatDate(admin.created_at || admin.createdAt) }}</td>
             <td class="actions">
               <button @click="openPermissionModal(admin)" class="btn-link">权限</button>
               <button 
@@ -328,7 +328,7 @@ const getAuthHeaders = () => {
 const loadAdmins = async () => {
   loading.value = true
   try {
-    const response = await fetch(`${apiConfig.baseURL}/admin/admins`, {
+    const response = await fetch(`${apiConfig.baseURL}/auth/admin/admins`, {
       headers: getAuthHeaders(),
       credentials: 'include'
     })
@@ -365,7 +365,7 @@ const openPermissionModal = (admin) => {
   permissionFormData.value = {
     id: admin.id,
     nickname: admin.nickname || admin.username,
-    isSuper: admin.isSuper || false,
+    isSuper: admin.isSuper || admin.is_super || false,
     permissions: admin.permissions || []
   }
   showPermissionModal.value = true
@@ -393,8 +393,8 @@ const submitForm = async () => {
   submitting.value = true
   try {
     const url = isEdit.value 
-      ? `${apiConfig.baseURL}/admin/admins/${formData.value.id}`
-      : `${apiConfig.baseURL}/admin/admins`
+      ? `${apiConfig.baseURL}/auth/admin/admins/${formData.value.id}`
+      : `${apiConfig.baseURL}/auth/admin/admins`
     const method = isEdit.value ? 'PUT' : 'POST'
 
     const response = await fetch(url, {
@@ -428,7 +428,7 @@ const submitForm = async () => {
 const submitPermission = async () => {
   submitting.value = true
   try {
-    const response = await fetch(`${apiConfig.baseURL}/admin/admins/${permissionFormData.value.id}`, {
+    const response = await fetch(`${apiConfig.baseURL}/auth/admin/admins/${permissionFormData.value.id}`, {
       method: 'PUT',
       headers: getAuthHeaders(),
       credentials: 'include',
@@ -465,7 +465,7 @@ const executeDelete = async () => {
 
   submitting.value = true
   try {
-    const response = await fetch(`${apiConfig.baseURL}/admin/admins/${deleteTarget.value.id}`, {
+    const response = await fetch(`${apiConfig.baseURL}/auth/admin/admins/${deleteTarget.value.id}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
       credentials: 'include'
