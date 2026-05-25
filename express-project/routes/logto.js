@@ -345,18 +345,31 @@ router.post('/callback', async (req, res) => {
       logto_id: user.logto_id
     });
     
+    // 设置最严格的HttpOnly Cookie
+    const isProduction = config.server.env === 'production';
+    
+    res.cookie('token', accessToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/'
+    });
+    
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: '/'
+    });
+
     res.json({
       code: RESPONSE_CODES.SUCCESS,
       message: '登录成功',
       data: {
-        user,
-        tokens: {
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          logto_access_token: tokenData.access_token,
-          logto_refresh_token: tokenData.refresh_token || '',
-          expires_in: tokenData.expires_in || 3600 * 24 * 7
-        }
+        user
+        // 不再返回tokens，token已通过安全Cookie传输
       }
     });
   } catch (error) {
@@ -611,6 +624,25 @@ router.post('/admin/callback', async (req, res) => {
       permissionsCount: permissions.length
     });
     
+    // 设置最严格的管理员HttpOnly Cookie
+    const isProduction = config.server.env === 'production';
+    
+    res.cookie('admin_token', accessToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,  // 7天
+      path: '/'
+    });
+    
+    res.cookie('admin_refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000,  // 30天
+      path: '/'
+    });
+
     res.json({
       code: RESPONSE_CODES.SUCCESS,
       message: '登录成功',
@@ -621,14 +653,8 @@ router.post('/admin/callback', async (req, res) => {
           nickname: admin.nickname || logtoUser.name || logtoUser.nickname || '管理员',
           isSuper,
           permissions
-        },
-        tokens: {
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          logto_access_token: tokenData.access_token,
-          logto_refresh_token: tokenData.refresh_token || '',
-          expires_in: tokenData.expires_in || 3600 * 24 * 7
         }
+        // 不再返回tokens，token已通过安全Cookie传输
       }
     });
   } catch (error) {

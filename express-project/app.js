@@ -12,6 +12,7 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const config = require('./config/config');
 const { HTTP_STATUS, RESPONSE_CODES } = require('./constants');
@@ -74,6 +75,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));  // 显式处理OPTIONS请求
+app.use(cookieParser());  // 解析Cookie
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 

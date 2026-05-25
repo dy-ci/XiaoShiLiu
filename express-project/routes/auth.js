@@ -697,16 +697,33 @@ router.post('/login', async (req, res) => {
 
     console.log(`用户登录成功 - 用户ID: ${user.id}, 悦社号: ${user.user_id}`);
 
+    // 设置最严格的HttpOnly Cookie
+    const isProduction = config.server.env === 'production';
+    
+    // 用户Token Cookie
+    res.cookie('token', accessToken, {
+      httpOnly: true,           // JavaScript无法访问
+      secure: isProduction,     // 生产环境必须HTTPS
+      sameSite: 'strict',       // 严格防止CSRF
+      maxAge: 7 * 24 * 60 * 60 * 1000,  // 7天
+      path: '/'
+    });
+
+    // Refresh Token Cookie（用于自动刷新）
+    res.cookie('refresh_token', refreshToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60 * 1000,  // 30天
+      path: '/'
+    });
+
     res.json({
       code: RESPONSE_CODES.SUCCESS,
       message: '登录成功',
       data: {
-        user,
-        tokens: {
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          expires_in: 3600
-        }
+        user
+        // 不再返回tokens，token已通过安全Cookie传输
       }
     });
   } catch (error) {
@@ -786,6 +803,10 @@ router.post('/logout', authenticateToken, async (req, res) => {
     );
 
     console.log(`用户退出成功 - 用户ID: ${userId}`);
+
+    // 清除所有认证相关的Cookie
+    res.clearCookie('token', { path: '/' });
+    res.clearCookie('refresh_token', { path: '/' });
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,
@@ -1219,6 +1240,10 @@ router.post('/admin/logout', authenticateToken, async (req, res) => {
       'UPDATE admin_sessions SET is_active = 0 WHERE admin_id = ? AND token = ?',
       [adminId.toString(), token]
     );
+
+    // 清除管理员认证Cookie
+    res.clearCookie('admin_token', { path: '/' });
+    res.clearCookie('admin_refresh_token', { path: '/' });
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,

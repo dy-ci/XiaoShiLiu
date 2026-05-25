@@ -1,4 +1,29 @@
-const { verifyToken, extractTokenFromHeader } = require('../utils/jwt');
+const { verifyToken } = require('../utils/jwt');
+
+/**
+ * 从请求头或Cookie中提取token
+ * @param {Object} req - Express请求对象
+ * @returns {String|null} token
+ */
+function extractTokenFromHeader(req) {
+  // 优先从Authorization头获取（兼容旧客户端）
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+
+  // 从Cookie中获取（新的安全方式）
+  if (req.cookies && req.cookies.token) {
+    return req.cookies.token;
+  }
+
+  // 管理员token（从Cookie）
+  if (req.cookies && req.cookies.admin_token) {
+    return req.cookies.admin_token;
+  }
+
+  return null;
+}
 const { pool } = require('../config/config');
 const { HTTP_STATUS, RESPONSE_CODES } = require('../constants');
 

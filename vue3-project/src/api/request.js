@@ -13,22 +13,11 @@ const request = axios.create({
 // 请求拦截器
 request.interceptors.request.use(
   config => {
-    const isAdminRequest = config.url && config.url.includes('/auth/admin/')
-    const isInAdminPage = window.location.pathname.startsWith('/admin')
-
-    if (isAdminRequest || isInAdminPage) {
-      // admin相关请求或在admin页面时使用admin token
-      const adminToken = localStorage.getItem('admin_token')
-      if (adminToken) {
-        config.headers.Authorization = `Bearer ${adminToken}`
-      }
-    } else {
-      // 普通用户请求使用普通token
-      const token = localStorage.getItem('token')
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`
-      }
-    }
+    // Token现在通过HttpOnly Cookie自动传输，无需手动设置Authorization头
+    // Cookie会在每次请求时自动发送到同源或允许的跨域服务器
+    
+    // 启用credentials以支持跨域Cookie传输
+    config.withCredentials = true
 
     return config
   },
@@ -66,44 +55,19 @@ request.interceptors.response.use(
           
           // 判断是管理员还是普通用户
           const isAdminPage = window.location.pathname.startsWith('/admin')
-          const isAdminRequest = error.config?.url?.includes('/auth/admin/')
           
-          console.log('页面类型判断:', { isAdminPage, isAdminRequest })
-          
-          if (isAdminPage || isAdminRequest) {
-            // 管理员相关请求
-            const adminToken = localStorage.getItem('admin_token')
-            if (adminToken) {
-              // 有token但401，说明是会话过期
-              console.log('管理员会话过期，清除本地存储')
-              localStorage.removeItem('admin_token')
-              localStorage.removeItem('admin_refresh_token')
-              localStorage.removeItem('admin_info')
-              // 只有在登录页面才跳转，避免死循环
-              if (!window.location.pathname.includes('/admin/login')) {
-                window.location.href = '/admin/login'
-              }
-              errorMessage = ERROR_MESSAGES.SESSION_EXPIRED
-            } else {
-              // 没有token，说明是未登录状态，不需要跳转
-              errorMessage = ERROR_MESSAGES.UNAUTHORIZED
+          if (isAdminPage) {
+            // 管理员相关请求 - Cookie会自动被服务器清除
+            // 只有在登录页面才跳转，避免死循环
+            if (!window.location.pathname.includes('/admin/login')) {
+              window.location.href = '/admin/login'
             }
+            errorMessage = ERROR_MESSAGES.SESSION_EXPIRED
           } else {
-            // 普通用户相关请求
-            const userToken = localStorage.getItem('token')
-            if (userToken) {
-              // 有token但401，说明是会话过期
-              console.log('普通用户会话过期，清除本地存储')
-              localStorage.removeItem('token')
-              localStorage.removeItem('refreshToken')
-              localStorage.removeItem('userInfo')
-              // 跳转到首页
-              window.location.href = '/'
-              errorMessage = ERROR_MESSAGES.SESSION_EXPIRED
-            } else {
-              // 没有token，说明是未登录状态，不需要跳转
-              errorMessage = ERROR_MESSAGES.UNAUTHORIZED
-            }
+            // 普通用户相关请求 - Cookie会自动被服务器清除
+            // 跳转到首页
+            window.location.href = '/'
+            errorMessage = ERROR_MESSAGES.SESSION_EXPIRED
           }
           break
         case HTTP_STATUS.TOO_MANY_REQUESTS:

@@ -4,18 +4,19 @@ import { authApi, userApi } from '@/api/index.js'
 
 export const useUserStore = defineStore('user', () => {
   // 状态
-  const token = ref(localStorage.getItem('token') || '')
-  const refreshToken = ref(localStorage.getItem('refreshToken') || '')
+  // Token现在通过HttpOnly Cookie存储，前端不再管理token
+  // token和refreshToken仅用于判断登录状态（通过userInfo是否存在）
   const userInfo = ref(null)
   const isLoading = ref(false)
+  
   // 邮箱验证码相关状态
   const isSendingEmailCode = ref(false)
   const emailCodeCountdown = ref(0)
   const emailCodeTimer = ref(null)
 
-  // 计算属性
+  // 计算属性 - 通过userInfo判断登录状态
   const isLoggedIn = computed(() => {
-    return !!token.value && (!!userInfo.value || !!localStorage.getItem('userInfo'))
+    return !!userInfo.value || !!JSON.parse(localStorage.getItem('userInfo') || 'null')
   })
 
   // 登录
@@ -25,17 +26,10 @@ export const useUserStore = defineStore('user', () => {
       const response = await authApi.login(credentials)
 
       if (response.success && response.data) {
-        // 保存token
-        token.value = response.data.tokens.access_token
-        refreshToken.value = response.data.tokens.refresh_token
+        // Token已通过HttpOnly Cookie设置，无需手动保存
+        // 只保存用户信息到本地（非敏感数据）
         userInfo.value = response.data.user
-
-        // 保存到localStorage
-        localStorage.setItem('token', response.data.tokens.access_token)
-        localStorage.setItem('refreshToken', response.data.tokens.refresh_token)
         localStorage.setItem('userInfo', JSON.stringify(response.data.user))
-
-        // Token已保存到localStorage
 
         return { success: true }
       } else {
@@ -62,14 +56,8 @@ export const useUserStore = defineStore('user', () => {
       const response = await authApi.register(userData)
 
       if (response.success) {
-        // 注册成功后自动登录
-        token.value = response.data.tokens.access_token
-        refreshToken.value = response.data.tokens.refresh_token
+        // 注册成功后自动登录 - Token已通过Cookie设置
         userInfo.value = response.data.user
-
-        // 保存到localStorage
-        localStorage.setItem('token', response.data.tokens.access_token)
-        localStorage.setItem('refreshToken', response.data.tokens.refresh_token)
         localStorage.setItem('userInfo', JSON.stringify(response.data.user))
 
         return { success: true }
@@ -90,20 +78,13 @@ export const useUserStore = defineStore('user', () => {
   // 退出登录
   const logout = async () => {
     try {
-      // 调用后端退出接口
-      if (token.value) {
-        await authApi.logout()
-      }
+      // 调用后端退出接口 - 后端会清除HttpOnly Cookie
+      await authApi.logout()
     } catch (error) {
       console.error('退出登录失败:', error)
     } finally {
-      // 清除本地数据
-      token.value = ''
-      refreshToken.value = ''
+      // 清除本地用户信息
       userInfo.value = null
-
-      localStorage.removeItem('token')
-      localStorage.removeItem('refreshToken')
       localStorage.removeItem('userInfo')
 
       // 重置未读通知数量
@@ -120,36 +101,33 @@ export const useUserStore = defineStore('user', () => {
   // 初始化用户信息（从localStorage恢复）
   const initUserInfo = () => {
     const savedUserInfo = localStorage.getItem('userInfo')
-    if (savedUserInfo && token.value) {
+    if (savedUserInfo) {
       try {
         userInfo.value = JSON.parse(savedUserInfo)
       } catch (error) {
         console.error('解析用户信息失败:', error)
         // 清除无效数据
         localStorage.removeItem('userInfo')
-        localStorage.removeItem('token')
-        localStorage.removeItem('refreshToken')
-        token.value = ''
-        refreshToken.value = ''
+        userInfo.value = null
       }
     }
   }
 
-  // 刷新token
+  // 刷新token - 现在由后端Cookie自动管理，此方法保留兼容性
   const refreshUserToken = async () => {
     try {
-      const response = await authApi.refreshToken()
-      if (response.success) {
-        token.value = response.data.tokens.access_token
-        localStorage.setItem('token', response.data.tokens.access_token)
+      // Cookie模式下的token刷新由后端处理
+      // 前端只需验证当前会话是否有效
+      const response = await authApi.getCurrentUser()
+      if (response.success && response.data) {
+        userInfo.value = response.data
+        localStorage.setItem('userInfo', JSON.stringify(response.data))
         return true
       }
       return false
     } catch (error) {
-      console.error('刷新token失败:', error)
-      // token刷新失败，清除登录状态
+      console.error('验证会话失败:', error)
       await logout()
-      // 不再强制刷新页面，让组件自己处理未登录情况
       return false
     }
   }
@@ -274,19 +252,12 @@ export const useUserStore = defineStore('user', () => {
       
       console.log('loginWithLogto 接收的数据:', data)
       
-      // 保存token和用户信息
-      token.value = data.tokens.access_token
-      refreshToken.value = data.tokens.refresh_token || ''
+      // Token已通过HttpOnly Cookie设置，无需手动保存
+      // 只保存用户信息
       userInfo.value = data.user
-
-      // 保存到localStorage
-      localStorage.setItem('token', data.tokens.access_token)
-      localStorage.setItem('refreshToken', data.tokens.refresh_token || '')
       localStorage.setItem('userInfo', JSON.stringify(data.user))
 
-      console.log('已保存的登录信息:', {
-        token: !!token.value,
-        refreshToken: !!refreshToken.value,
+      console.log('已保存的用户信息:', {
         userInfo: !!userInfo.value
       })
 
@@ -329,8 +300,6 @@ export const useUserStore = defineStore('user', () => {
 
   return {
     // 状态
-    token,
-    refreshToken,
     userInfo,
     isLoading,
 
