@@ -40,17 +40,25 @@ app.use(messageInstall) // 注册消息管理器
 
 // 初始化用户信息
 const userStore = useUserStore()
-// 先从localStorage恢复用户信息
+// 先从localStorage恢复用户信息（同步操作，不会失败）
 userStore.initUserInfo()
-// 如果有已保存的用户信息，尝试验证会话是否有效
+
+// 延迟验证会话有效性，避免阻塞应用启动
+// 使用requestIdleCallback或setTimeout在浏览器空闲时执行
 if (userStore.isLoggedIn) {
-  userStore.getCurrentUser().catch(error => {
-    console.error('验证用户会话失败:', error)
-    // 如果会话无效，清除本地数据
-    if (error.response?.status === 401) {
-      userStore.logout()
+  // 延迟500ms后再验证，确保页面已完全渲染
+  setTimeout(async () => {
+    try {
+      await userStore.getCurrentUser()
+      console.log('用户会话验证成功')
+    } catch (error) {
+      // 只有在确实是401错误时才清除登录状态
+      if (error.response?.status === 401 || error.isSessionExpired) {
+        console.log('用户会话已过期，清除本地数据')
+        await userStore.logout()
+      }
     }
-  })
+  }, 500)
 }
 
 // 初始化频道数据

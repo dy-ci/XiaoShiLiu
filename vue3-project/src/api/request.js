@@ -10,19 +10,27 @@ const request = axios.create({
   headers: apiConfig.defaultHeaders
 })
 
+// 401错误处理状态锁 - 防止重复跳转
+let isHandling401 = false
+let redirectTimer = null
+
+// 重置401处理锁
+const reset401Lock = () => {
+  if (redirectTimer) {
+    clearTimeout(redirectTimer)
+  }
+  redirectTimer = setTimeout(() => {
+    isHandling401 = false
+  }, 1000) // 1秒内不重复处理401
+}
+
 // 请求拦截器
 request.interceptors.request.use(
   config => {
-    // Token现在通过HttpOnly Cookie自动传输，无需手动设置Authorization头
-    // Cookie会在每次请求时自动发送到同源或允许的跨域服务器
-    
-    // 启用credentials以支持跨域Cookie传输
     config.withCredentials = true
-
     return config
   },
   error => {
-    // 对请求错误做些什么
     console.error('❌ 请求配置错误:', error)
     return Promise.reject(error)
   }
@@ -31,7 +39,6 @@ request.interceptors.request.use(
 // 响应拦截器
 request.interceptors.response.use(
   (response) => {
-    // 对于后端返回的 { code, message, data } 格式，转换为前端期望的 { success, message, data } 格式
     if (response.data && response.data.hasOwnProperty('code')) {
       return {
         success: response.data.code === HTTP_STATUS.OK,
@@ -40,35 +47,41 @@ request.interceptors.response.use(
       }
     }
 
-    // 其他情况直接返回原始数据
     return response.data
   },
   async error => {
-    // 对响应错误做点什么
     if (error.response) {
-      // 处理特定的HTTP状态码
       let errorMessage = ERROR_MESSAGES.REQUEST_FAILED
       switch (error.response.status) {
         case HTTP_STATUS.UNAUTHORIZED:
-          // 未授权，需要区分是会话过期还是未登录状态
-          console.log('检测到401错误，开始处理未授权访问')
+          console.log('检测到401错误')
           
-          // 判断是管理员还是普通用户
-          const isAdminPage = window.location.pathname.startsWith('/admin')
-          
-          if (isAdminPage) {
-            // 管理员相关请求 - Cookie会自动被服务器清除
-            // 只有在登录页面才跳转，避免死循环
-            if (!window.location.pathname.includes('/admin/login')) {
-              window.location.href = '/admin/login'
-            }
-            errorMessage = ERROR_MESSAGES.SESSION_EXPIRED
-          } else {
-            // 普通用户相关请求 - Cookie会自动被服务器清除
-            // 跳转到首页
-            window.location.href = '/'
-            errorMessage = ERROR_MESSAGES.SESSION_EXPIRED
+          // 防止重复跳转导致的循环
+          if (!isHandling401) {
+            isHandling401 = true
+            
+            // 判断是管理员还是普通用户页面
+            const isAdminPage = window.location.pathname.startsWith('/admin')
+            
+            // 延迟执行跳转，给当前操作完成的时间
+            setTimeout(() => {
+              if (isAdminPage) {
+                // 管理员页面 - 只有不在登录页时才跳转
+                if (!window.location.pathname.includes('/admin/login')) {
+                  console.log('401: 跳转到管理员登录页')
+                  window.location.href = '/admin/login'
+                }
+              } else {
+                // 普通用户页面 - 跳转到首页
+                console.log('401: 跳转到首页')
+                window.location.href = '/'
+              }
+            }, 100) // 100ms延迟
+            
+            reset401Lock()
           }
+          
+          errorMessage = ERROR_MESSAGES.SESSION_EXPIRED
           break
         case HTTP_STATUS.TOO_MANY_REQUESTS:
           errorMessage = ERROR_MESSAGES.TOO_MANY_REQUESTS
@@ -92,22 +105,22 @@ request.interceptors.response.use(
           errorMessage = error.response.data?.message || `请求失败 (${error.response.status})`
       }
 
-      // 如果服务器返回了code字段，使用服务器的错误信息
       if (error.response.data && error.response.data.hasOwnProperty('code')) {
         return {
           success: false,
           message: error.response.data.message || errorMessage,
-          data: error.response.data.data
+          data: error.response.data.data,
+          isSessionExpired: error.response.status === HTTP_STATUS.UNAUTHORIZED
         }
       }
 
       return {
         success: false,
         message: errorMessage,
-        data: null
+        data: null,
+        isSessionExpired: error.response.status === HTTP_STATUS.UNAUTHORIZED
       }
     } else if (error.request) {
-      // 请求已经成功发起，但没有收到响应
       console.error('网络连接失败，请检查网络设置')
       return {
         success: false,
@@ -115,7 +128,6 @@ request.interceptors.response.use(
         data: null
       }
     } else {
-      // 发送请求时出了点问题
       console.error('请求配置错误:', error.message)
       return {
         success: false,

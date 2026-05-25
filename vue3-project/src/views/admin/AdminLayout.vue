@@ -201,17 +201,28 @@ onMounted(async () => {
       router.push('/admin/login')
       return
     }
+    
+    // 验证token有效性，如果失败则跳转到登录页
     const isValid = await adminStore.checkTokenValidity()
     if (!isValid) {
+      console.log('管理员会话验证失败，跳转到登录页')
       showMessage('登录已过期，请重新登录', 'error')
-      router.push('/admin/login')
-    } else {
-      localLoginSuccess.value = true
+      
+      // 延迟跳转，避免与request.js的401处理冲突
+      setTimeout(() => {
+        router.push('/admin/login')
+      }, 200)
+      return
     }
+    
+    localLoginSuccess.value = true
     setupMobileWatcher()
   } catch (error) {
     console.error('初始化失败:', error)
-    router.push('/admin/login')
+    // 只有在确实需要时才跳转，避免循环
+    if (!window.location.pathname.includes('/admin/login')) {
+      router.push('/admin/login')
+    }
   } finally {
     isLoading.value = false
   }

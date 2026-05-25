@@ -65,7 +65,10 @@ function handleAvatarError(event) {
 onMounted(() => {
   userStore.initUserInfo()
   if (userStore.isLoggedIn) {
-    notificationStore.fetchUnreadCount()
+    // 静默获取未读通知数量，不阻塞页面渲染
+    notificationStore.fetchUnreadCount().catch(() => {
+      // 忽略错误，避免影响用户体验
+    })
   }
 })
 </script>
