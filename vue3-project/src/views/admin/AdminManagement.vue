@@ -1,53 +1,216 @@
 <template>
   <div class="admin-management">
-    <CrudTable 
-      title="管理员管理" 
-      entity-name="管理员" 
-      api-endpoint="/admin/admins" 
-      :columns="columns" 
-      :form-fields="formFields"
-      :search-fields="searchFields" 
-      :custom-actions="customActions"
-      @custom-action="handleCustomAction"
-    />
-    
-    <!-- 权限设置表单 -->
-    <FormModal 
-      v-model:visible="permissionModalVisible" 
-      title="设置管理员权限" 
-      :form-fields="permissionFormFields"
-      v-model:form-data="permissionFormData" 
-      confirm-text="保存权限" 
-      :loading="isSubmitting"
-      @submit="handlePermissionSubmit" 
-      @close="permissionModalVisible = false" 
-    />
-    
-    <!-- 删除确认弹窗 -->
-    <ConfirmDialog 
-      v-model:visible="showDeleteModal" 
-      title="确认删除"
-      :message="`确定要删除管理员《${selectedItem?.nickname || selectedItem?.username}》吗？此操作不可撤销。`" 
-      type="warning"
-      confirm-text="删除" 
-      cancel-text="取消" 
-      @confirm="handleConfirmDelete" 
-      @cancel="showDeleteModal = false" 
-    />
+    <div class="page-header">
+      <h2>管理员管理</h2>
+      <button @click="openCreateModal" class="btn btn-primary">
+        <span>+</span> 新建管理员
+      </button>
+    </div>
+
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>用户名</th>
+            <th>昵称</th>
+            <th>角色</th>
+            <th>Logto ID</th>
+            <th>创建时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="admin in admins" :key="admin.id">
+            <td>{{ admin.username }}</td>
+            <td>{{ admin.nickname || '-' }}</td>
+            <td>
+              <span :class="['role-tag', admin.isSuper ? 'super' : 'normal']">
+                {{ admin.isSuper ? '超级管理员' : '管理员' }}
+              </span>
+            </td>
+            <td>{{ admin.logtoId || '-' }}</td>
+            <td>{{ formatDate(admin.createdAt) }}</td>
+            <td class="actions">
+              <button @click="openPermissionModal(admin)" class="btn-link">权限</button>
+              <button 
+                v-if="admin.id !== currentAdminId" 
+                @click="confirmDelete(admin)" 
+                class="btn-link danger"
+              >
+                删除
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-if="loading" class="loading">加载中...</div>
+    <div v-if="admins.length === 0 && !loading" class="empty">暂无管理员</div>
+
+    <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>{{ isEdit ? '编辑管理员' : '新建管理员' }}</h3>
+          <button @click="closeModal" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>用户名 *</label>
+            <input 
+              v-model="formData.username" 
+              type="text" 
+              placeholder="输入用户名"
+              :disabled="isEdit"
+            />
+            <span class="help-text">必填，用于关联 Logto 账户</span>
+          </div>
+          <div class="form-group">
+            <label>Logto ID</label>
+            <input 
+              v-model="formData.logtoId" 
+              type="text" 
+              placeholder="留空则自动匹配"
+              :disabled="isEdit"
+            />
+            <span class="help-text">建议留空，系统会自动匹配用户名</span>
+          </div>
+          <div class="form-group">
+            <label>昵称</label>
+            <input v-model="formData.nickname" type="text" placeholder="输入昵称" />
+          </div>
+          <div class="form-group">
+            <label>
+              <input v-model="formData.isSuper" type="checkbox" />
+              设为超级管理员
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeModal" class="btn btn-outline">取消</button>
+          <button @click="submitForm" class="btn btn-primary" :disabled="submitting">
+            {{ submitting ? '提交中...' : '保存' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showPermissionModal" class="modal-overlay" @click.self="closePermissionModal">
+      <div class="modal modal-large">
+        <div class="modal-header">
+          <h3>设置权限 - {{ permissionFormData.nickname }}</h3>
+          <button @click="closePermissionModal" class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>
+              <input v-model="permissionFormData.isSuper" type="checkbox" />
+              超级管理员（拥有所有权限）
+            </label>
+          </div>
+          
+          <div v-if="!permissionFormData.isSuper" class="permission-section">
+            <div class="form-group">
+              <label>快速选择角色</label>
+              <div class="role-buttons">
+                <button 
+                  v-for="role in roles" 
+                  :key="role.key"
+                  :class="['btn', 'btn-outline', { active: selectedRole === role.key }]"
+                  @click="selectRole(role)"
+                >
+                  {{ role.name }}
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>精细权限配置</label>
+              <div class="permission-groups">
+                <div v-for="group in permissionGroups" :key="group.name" class="permission-group">
+                  <div class="group-title">{{ group.name }}</div>
+                  <div class="permission-list">
+                    <label 
+                      v-for="perm in group.permissions" 
+                      :key="perm.key"
+                      class="permission-item"
+                    >
+                      <input 
+                        type="checkbox" 
+                        :value="perm.key" 
+                        v-model="permissionFormData.permissions"
+                      />
+                      <span>{{ perm.label }}</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closePermissionModal" class="btn btn-outline">取消</button>
+          <button @click="submitPermission" class="btn btn-primary" :disabled="submitting">
+            {{ submitting ? '保存中...' : '保存权限' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="showDeleteConfirm = false">
+      <div class="modal modal-small">
+        <div class="modal-header">
+          <h3>确认删除</h3>
+        </div>
+        <div class="modal-body">
+          <p>确定要删除管理员 <strong>{{ deleteTarget?.nickname || deleteTarget?.username }}</strong> 吗？</p>
+          <p class="warning">此操作不可撤销</p>
+        </div>
+        <div class="modal-footer">
+          <button @click="showDeleteConfirm = false" class="btn btn-outline">取消</button>
+          <button @click="executeDelete" class="btn btn-danger" :disabled="submitting">
+            {{ submitting ? '删除中...' : '删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import CrudTable from '@/views/admin/components/CrudTable.vue'
-import FormModal from '@/views/admin/components/FormModal.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAdminStore } from '@/stores/admin'
+import apiConfig from '@/config/api.js'
 import messageManager from '@/utils/messageManager'
 
 const adminStore = useAdminStore()
 
-// 权限分组定义
+const admins = ref([])
+const loading = ref(false)
+const showModal = ref(false)
+const showPermissionModal = ref(false)
+const showDeleteConfirm = ref(false)
+const isEdit = ref(false)
+const submitting = ref(false)
+const selectedRole = ref('')
+const deleteTarget = ref(null)
+const currentAdminId = ref(null)
+
+const formData = ref({
+  id: null,
+  username: '',
+  logtoId: '',
+  nickname: '',
+  isSuper: false
+})
+
+const permissionFormData = ref({
+  id: null,
+  nickname: '',
+  isSuper: false,
+  permissions: []
+})
+
 const permissionGroups = [
   {
     name: '系统功能',
@@ -137,9 +300,7 @@ const permissionGroups = [
   }
 ]
 
-// 预设角色
 const roles = [
-  { key: 'super_admin', name: '超级管理员', permissions: [] },
   { key: 'content_admin', name: '内容管理员', permissions: [
     'posts:view', 'posts:edit', 'posts:delete',
     'post_audit:view', 'post_audit:audit',
@@ -158,166 +319,131 @@ const roles = [
   ]}
 ]
 
-// 表格列定义
-const columns = [
-  { key: 'username', label: '用户名', sortable: false },
-  { key: 'nickname', label: '昵称', sortable: false },
-  { 
-    key: 'isSuper', 
-    label: '角色', 
-    type: 'tag',
-    format: (val) => val ? '超级管理员' : '管理员',
-    color: (val) => val ? '#ff4d4f' : '#1890ff'
-  },
-  { key: 'logtoId', label: 'Logto ID', sortable: false },
-  { key: 'createdAt', label: '创建时间', type: 'date', sortable: true }
-]
-
-// 表单字段定义
-const formFields = [
-  { key: 'username', label: '用户名', type: 'text', required: true, placeholder: '请输入管理员用户名', disabledOnEdit: true },
-  { key: 'logtoId', label: 'Logto ID', type: 'text', placeholder: '可选，留空则通过用户名匹配', disabledOnEdit: true, helpText: '建议留空，系统会自动匹配' },
-  { key: 'nickname', label: '昵称', type: 'text', placeholder: '请输入昵称' },
-  { 
-    key: 'isSuper', 
-    label: '超级管理员', 
-    type: 'checkbox'
+const getAuthHeaders = () => {
+  const headers = { 'Content-Type': 'application/json' }
+  const token = localStorage.getItem('admin_token')
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
   }
-]
-
-// 搜索字段定义
-const searchFields = [
-  { key: 'username', label: '用户名', placeholder: '搜索用户名' }
-]
-
-// 自定义操作按钮
-const customActions = [
-  { key: 'permission', label: '设置权限', type: 'primary' }
-]
-
-// 权限设置相关
-const permissionModalVisible = ref(false)
-const permissionFormData = ref({
-  id: null,
-  nickname: '',
-  isSuper: false,
-  permissions: [],
-  currentRole: 'custom'
-})
-
-const permissionFormFields = computed(() => [
-  { key: 'nickname', label: '昵称', type: 'text', disabled: true },
-  { 
-    key: 'isSuper', 
-    label: '超级管理员', 
-    type: 'checkbox',
-    onChange: (val) => {
-      if (val) {
-        permissionFormData.value.currentRole = 'super_admin'
-        permissionFormData.value.permissions = []
-      }
-    }
-  },
-  ...(!permissionFormData.value.isSuper ? [
-    { 
-      key: 'currentRole', 
-      label: '预设角色', 
-      type: 'select',
-      options: roles.map(r => ({ value: r.key, label: r.name })),
-      onChange: (val) => {
-        const role = roles.find(r => r.key === val)
-        if (role && role.key !== 'custom') {
-          permissionFormData.value.permissions = [...(role.permissions || [])]
-        }
-      }
-    },
-    { 
-      key: 'permissions', 
-      label: '自定义权限', 
-      type: 'custom',
-      render: () => renderPermissionGroups()
-    }
-  ] : [])
-])
-
-// 渲染权限分组
-const renderPermissionGroups = () => {
-  return `<div class="permission-groups">
-    ${permissionGroups.map(group => `
-      <div class="permission-group">
-        <div class="group-title">${group.name}</div>
-        <div class="permission-grid">
-          ${group.permissions.map(perm => `
-            <label class="permission-item">
-              <input type="checkbox" value="${perm.key}" ${permissionFormData.value.permissions.includes(perm.key) ? 'checked' : ''} @change="togglePermission('${perm.key}')" />
-              <span>${perm.label}</span>
-            </label>
-          `).join('')}
-        </div>
-      </div>
-    `).join('')}
-  </div>`
+  return headers
 }
 
-// 删除相关
-const showDeleteModal = ref(false)
-const selectedItem = ref(null)
-const isSubmitting = ref(false)
-
-// 处理自定义操作
-const handleCustomAction = (action, item) => {
-  if (action.key === 'permission') {
-    openPermissionModal(item)
-  }
-}
-
-// 打开权限设置弹窗
-const openPermissionModal = (item) => {
-  selectedItem.value = item
-  permissionFormData.value = {
-    id: item.id,
-    nickname: item.nickname,
-    isSuper: item.isSuper || false,
-    permissions: item.permissions || [],
-    currentRole: 'custom'
-  }
-  permissionModalVisible.value = true
-}
-
-// 切换权限
-const togglePermission = (permKey) => {
-  const index = permissionFormData.value.permissions.indexOf(permKey)
-  if (index > -1) {
-    permissionFormData.value.permissions.splice(index, 1)
-  } else {
-    permissionFormData.value.permissions.push(permKey)
-  }
-}
-
-// 提交权限设置
-const handlePermissionSubmit = async () => {
-  isSubmitting.value = true
+const loadAdmins = async () => {
+  loading.value = true
   try {
-    const apiConfig = await import('@/config/api.js')
-    const baseURL = apiConfig.default.baseURL || 'http://localhost:3001/api'
-    const response = await fetch(`${baseURL}/admin/admins/${permissionFormData.value.id}`, {
+    const response = await fetch(`${apiConfig.baseURL}/admin/admins`, {
+      headers: getAuthHeaders()
+    })
+    const result = await response.json()
+    if (result.code === 200) {
+      admins.value = result.data.data || result.data
+    }
+  } catch (error) {
+    console.error('加载管理员失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const formatDate = (date) => {
+  if (!date) return '-'
+  return new Date(date).toLocaleString('zh-CN')
+}
+
+const openCreateModal = () => {
+  isEdit.value = false
+  formData.value = {
+    id: null,
+    username: '',
+    logtoId: '',
+    nickname: '',
+    isSuper: false
+  }
+  showModal.value = true
+}
+
+const openPermissionModal = (admin) => {
+  selectedRole.value = ''
+  permissionFormData.value = {
+    id: admin.id,
+    nickname: admin.nickname || admin.username,
+    isSuper: admin.isSuper || false,
+    permissions: admin.permissions || []
+  }
+  showPermissionModal.value = true
+}
+
+const selectRole = (role) => {
+  selectedRole.value = role.key
+  permissionFormData.value.permissions = [...role.permissions]
+}
+
+const closeModal = () => {
+  showModal.value = false
+}
+
+const closePermissionModal = () => {
+  showPermissionModal.value = false
+}
+
+const submitForm = async () => {
+  if (!formData.value.username) {
+    messageManager.error('用户名不能为空')
+    return
+  }
+
+  submitting.value = true
+  try {
+    const url = isEdit.value 
+      ? `${apiConfig.baseURL}/admin/admins/${formData.value.id}`
+      : `${apiConfig.baseURL}/admin/admins`
+    const method = isEdit.value ? 'PUT' : 'POST'
+
+    const response = await fetch(url, {
+      method,
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        username: formData.value.username,
+        logtoId: formData.value.logtoId || null,
+        nickname: formData.value.nickname || formData.value.username,
+        isSuper: formData.value.isSuper
+      })
+    })
+
+    const result = await response.json()
+    if (result.code === 200) {
+      messageManager.success(isEdit.value ? '更新成功' : '创建成功')
+      closeModal()
+      loadAdmins()
+    } else {
+      messageManager.error(result.message || '操作失败')
+    }
+  } catch (error) {
+    console.error('操作失败:', error)
+    messageManager.error('操作失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+const submitPermission = async () => {
+  submitting.value = true
+  try {
+    const response = await fetch(`${apiConfig.baseURL}/admin/admins/${permissionFormData.value.id}`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${adminStore.token}`
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         nickname: permissionFormData.value.nickname,
         isSuper: permissionFormData.value.isSuper,
         permissions: permissionFormData.value.isSuper ? [] : permissionFormData.value.permissions
       })
     })
-    
+
     const result = await response.json()
-    if (result.code === 'SUCCESS') {
+    if (result.code === 200) {
       messageManager.success('权限设置成功')
-      permissionModalVisible.value = false
-      window.location.reload()
+      closePermissionModal()
+      loadAdmins()
     } else {
       messageManager.error(result.message || '权限设置失败')
     }
@@ -325,30 +451,31 @@ const handlePermissionSubmit = async () => {
     console.error('权限设置失败:', error)
     messageManager.error('权限设置失败')
   } finally {
-    isSubmitting.value = false
+    submitting.value = false
   }
 }
 
-// 确认删除
-const handleConfirmDelete = async () => {
-  if (!selectedItem.value) return
-  
-  isSubmitting.value = true
+const confirmDelete = (admin) => {
+  deleteTarget.value = admin
+  showDeleteConfirm.value = true
+}
+
+const executeDelete = async () => {
+  if (!deleteTarget.value) return
+
+  submitting.value = true
   try {
-    const apiConfig = await import('@/config/api.js')
-    const baseURL = apiConfig.default.baseURL || 'http://localhost:3001/api'
-    const response = await fetch(`${baseURL}/admin/admins/${selectedItem.value.id}`, {
+    const response = await fetch(`${apiConfig.baseURL}/admin/admins/${deleteTarget.value.id}`, {
       method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${adminStore.token}`
-      }
+      headers: getAuthHeaders()
     })
-    
+
     const result = await response.json()
-    if (result.code === 'SUCCESS') {
+    if (result.code === 200) {
       messageManager.success('删除成功')
-      showDeleteModal.value = false
-      window.location.reload()
+      showDeleteConfirm.value = false
+      deleteTarget.value = null
+      loadAdmins()
     } else {
       messageManager.error(result.message || '删除失败')
     }
@@ -356,57 +483,295 @@ const handleConfirmDelete = async () => {
     console.error('删除失败:', error)
     messageManager.error('删除失败')
   } finally {
-    isSubmitting.value = false
+    submitting.value = false
   }
 }
+
+onMounted(async () => {
+  const adminInfo = JSON.parse(localStorage.getItem('admin_info') || '{}')
+  currentAdminId.value = adminInfo.id
+  await loadAdmins()
+})
 </script>
 
 <style scoped>
 .admin-management {
   padding: 20px;
-}
-
-:deep(.permission-groups) {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-height: 400px;
-  overflow-y: auto;
 }
 
-:deep(.permission-group) {
-  background: var(--bg-color-secondary);
-  padding: 12px;
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.page-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.table-container {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg-color-primary);
   border-radius: 8px;
 }
 
-:deep(.group-title) {
-  font-size: 14px;
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px 15px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color-primary);
+}
+
+.data-table th {
+  background: var(--bg-color-secondary);
   font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+
+.role-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.role-tag.super {
+  background: #fff1f0;
+  color: #cf1322;
+}
+
+.role-tag.normal {
+  background: #e6f7ff;
+  color: #1890ff;
+}
+
+.actions {
+  white-space: nowrap;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #1890ff;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 14px;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.btn-link.danger {
+  color: #ff4d4f;
+}
+
+.loading,
+.empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-color-secondary);
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--bg-color-primary);
+  border-radius: 8px;
+  width: 480px;
+  max-width: 90%;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-large {
+  width: 700px;
+}
+
+.modal-small {
+  width: 400px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color-primary);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--text-color-secondary);
+}
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color-primary);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.form-group input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.form-group input[type="text"]:disabled {
+  background: var(--bg-color-secondary);
+  cursor: not-allowed;
+}
+
+.help-text {
+  display: block;
+  font-size: 12px;
+  color: var(--text-color-secondary);
+  margin-top: 4px;
+}
+
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.btn-primary {
+  background: #1890ff;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #40a9ff;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border-color-primary);
+  color: var(--text-color-primary);
+}
+
+.btn-outline.active {
+  background: #1890ff;
+  color: white;
+  border-color: #1890ff;
+}
+
+.btn-danger {
+  background: #ff4d4f;
+  color: white;
+}
+
+.permission-section {
+  margin-top: 20px;
+}
+
+.role-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.permission-groups {
+  margin-top: 16px;
+}
+
+.permission-group {
+  background: var(--bg-color-secondary);
+  border-radius: 8px;
+  padding: 12px;
   margin-bottom: 12px;
 }
 
-:deep(.permission-grid) {
+.group-title {
+  font-weight: 600;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.permission-list {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
 
-:deep(.permission-item) {
+.permission-item {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px;
   cursor: pointer;
   font-size: 13px;
-}
-
-:deep(.permission-item:hover) {
-  background: rgba(0,0,0,0.05);
   border-radius: 4px;
 }
 
-:deep(.permission-item input) {
-  cursor: pointer;
+.permission-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.warning {
+  color: #ff4d4f;
+  font-size: 14px;
+  margin-top: 8px;
 }
 </style>
