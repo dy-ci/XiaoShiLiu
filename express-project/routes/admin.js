@@ -1,4 +1,4 @@
-﻿const express = require('express')
+const express = require('express')
 const router = express.Router()
 const { HTTP_STATUS, RESPONSE_CODES } = require('../constants')
 const { pool } = require('../config/config')
@@ -2465,35 +2465,14 @@ router.post('/users/:id/unban', adminAuth, async (req, res) => {
 const adminsCrudConfig = {
   table: 'admin',
   name: '管理员',
-  requiredFields: ['username', 'password'],
-  updateFields: ['password'],
+  requiredFields: ['username'],
+  updateFields: [],
   uniqueFields: ['username'],
   searchFields: {
     username: { operator: 'LIKE' }
   },
   allowedSortFields: ['username', 'created_at'],
-  defaultOrderBy: 'created_at DESC',
-  primaryKey: 'username', // 使用username作为主键
-
-  // 创建前的自定义处理
-  beforeCreate: async (data) => {
-    // 对密码进行哈希加密
-    if (data.password) {
-      const [hashResult] = await pool.execute('SELECT SHA2(?, 256) as hashed_password', [data.password])
-      data.password = hashResult[0].hashed_password
-    }
-    return { isValid: true }
-  },
-
-  // 更新前的自定义处理
-  beforeUpdate: async (data) => {
-    // 如果更新密码，进行哈希加密
-    if (data.password) {
-      const [hashResult] = await pool.execute('SELECT SHA2(?, 256) as hashed_password', [data.password])
-      data.password = hashResult[0].hashed_password
-    }
-    return { isValid: true }
-  }
+  defaultOrderBy: 'created_at DESC'
 }
 
 const adminsHandlers = createCrudHandlers(adminsCrudConfig)
