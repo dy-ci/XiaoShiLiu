@@ -44,6 +44,12 @@ const router = createRouter({
       name: 'logto_callback',
       component: LogtoCallback
     },
+    // 管理员 Logto 回调路由
+    {
+      path: '/admin/callback',
+      name: 'admin_logto_callback',
+      component: () => import('@/views/admin/AdminLogin.vue')
+    },
     {
       path: '/',
       component: layout,

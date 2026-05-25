@@ -149,6 +149,7 @@ const config = {
     appId: process.env.LOGTO_APP_ID || '',
     appSecret: process.env.LOGTO_APP_SECRET || '',
     redirectUri: process.env.LOGTO_REDIRECT_URI || 'http://localhost:5173/callback',
+    adminRedirectUri: process.env.LOGTO_ADMIN_REDIRECT_URI || 'http://localhost:5173/admin/callback',
     postLogoutRedirectUri: process.env.LOGTO_POST_LOGOUT_REDIRECT_URI || 'http://localhost:5173',
     cookieSecret: process.env.LOGTO_COOKIE_SECRET || crypto.randomBytes(32).toString('hex')
   }

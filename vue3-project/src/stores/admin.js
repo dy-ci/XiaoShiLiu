@@ -7,9 +7,25 @@ export const useAdminStore = defineStore('admin', () => {
   const admin = ref(null)
   const token = ref(localStorage.getItem('admin_token') || '')
   const refreshToken = ref(localStorage.getItem('admin_refresh_token') || '')
+  const permissions = ref([])
 
   // 计算属性
   const isLoggedIn = computed(() => !!admin.value && !!token.value)
+  const isSuperAdmin = computed(() => admin.value?.is_super || false)
+
+  // 权限检查
+  const hasPermission = (perm) => {
+    if (isSuperAdmin.value) return true
+    if (!Array.isArray(permissions.value)) return false
+    return permissions.value.includes(perm)
+  }
+
+  // 检查是否有任意一个权限
+  const hasAnyPermission = (perms) => {
+    if (isSuperAdmin.value) return true
+    if (!Array.isArray(permissions.value)) return false
+    return perms.some(p => permissions.value.includes(p))
+  }
 
   // 管理员登录
   const login = async (credentials) => {
@@ -21,11 +37,13 @@ export const useAdminStore = defineStore('admin', () => {
         admin.value = response.data.admin
         token.value = response.data.tokens.access_token
         refreshToken.value = response.data.tokens.refresh_token
+        permissions.value = response.data.admin.permissions || []
 
         // 保存管理员Token到localStorage
         localStorage.setItem('admin_token', token.value)
         localStorage.setItem('admin_refresh_token', refreshToken.value)
         localStorage.setItem('admin_info', JSON.stringify(admin.value))
+        localStorage.setItem('admin_permissions', JSON.stringify(permissions.value))
 
         return { success: true, message: response.message }
       } else {
@@ -43,6 +61,29 @@ export const useAdminStore = defineStore('admin', () => {
       }
 
       return { success: false, message: errorMessage }
+    }
+  }
+
+  // Logto 登录
+  const logtoLogin = async (data) => {
+    try {
+      console.log('Admin Logto Login data:', data)
+      
+      admin.value = data.admin
+      token.value = data.tokens.access_token
+      refreshToken.value = data.tokens.refresh_token
+      permissions.value = data.admin.permissions || []
+
+      localStorage.setItem('admin_token', token.value)
+      localStorage.setItem('admin_refresh_token', refreshToken.value)
+      localStorage.setItem('admin_info', JSON.stringify(admin.value))
+      localStorage.setItem('admin_permissions', JSON.stringify(permissions.value))
+
+      console.log('Logto login successful, permissions:', permissions.value)
+      return { success: true }
+    } catch (error) {
+      console.error('Logto 登录失败:', error)
+      return { success: false, message: error.message || 'Logto 登录失败' }
     }
   }
 
@@ -88,10 +129,12 @@ export const useAdminStore = defineStore('admin', () => {
       admin.value = null
       token.value = ''
       refreshToken.value = ''
+      permissions.value = []
 
       localStorage.removeItem('admin_token')
       localStorage.removeItem('admin_refresh_token')
       localStorage.removeItem('admin_info')
+      localStorage.removeItem('admin_permissions')
 
       // 管理员退出登录成功
     } catch (error) {
@@ -100,9 +143,11 @@ export const useAdminStore = defineStore('admin', () => {
       admin.value = null
       token.value = ''
       refreshToken.value = ''
+      permissions.value = []
       localStorage.removeItem('admin_token')
       localStorage.removeItem('admin_refresh_token')
       localStorage.removeItem('admin_info')
+      localStorage.removeItem('admin_permissions')
     }
   }
 
@@ -117,7 +162,9 @@ export const useAdminStore = defineStore('admin', () => {
 
       if (response.success && response.data) {
         admin.value = response.data
+        permissions.value = response.data.permissions || []
         localStorage.setItem('admin_info', JSON.stringify(admin.value))
+        localStorage.setItem('admin_permissions', JSON.stringify(permissions.value))
         return { success: true, data: response.data }
       } else {
         throw new Error(response.message || '获取管理员信息失败')
@@ -134,7 +181,9 @@ export const useAdminStore = defineStore('admin', () => {
             const newResponse = await adminApi.getCurrentAdmin()
             if (newResponse.success && newResponse.data) {
               admin.value = newResponse.data
+              permissions.value = newResponse.data.permissions || []
               localStorage.setItem('admin_info', JSON.stringify(admin.value))
+              localStorage.setItem('admin_permissions', JSON.stringify(permissions.value))
               return { success: true, data: newResponse.data }
             } else {
               throw new Error(newResponse.message || '获取管理员信息失败')
@@ -157,9 +206,12 @@ export const useAdminStore = defineStore('admin', () => {
   const initializeAdmin = () => {
     try {
       const storedAdminInfo = localStorage.getItem('admin_info')
+      const storedPermissions = localStorage.getItem('admin_permissions')
       if (storedAdminInfo && token.value) {
         admin.value = JSON.parse(storedAdminInfo)
-        // 从本地存储恢复管理员信息
+        if (storedPermissions) {
+          permissions.value = JSON.parse(storedPermissions)
+        }
       }
     } catch (error) {
       console.error('恢复管理员信息失败:', error)
@@ -185,16 +237,21 @@ export const useAdminStore = defineStore('admin', () => {
     admin,
     token,
     refreshToken,
+    permissions,
 
     // 计算属性
     isLoggedIn,
+    isSuperAdmin,
 
     // 方法
     login,
+    logtoLogin,
     logout,
     refreshTokens,
     getCurrentAdmin,
     initializeAdmin,
-    checkTokenValidity
+    checkTokenValidity,
+    hasPermission,
+    hasAnyPermission
   }
 })

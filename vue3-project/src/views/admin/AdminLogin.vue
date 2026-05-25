@@ -1,143 +1,106 @@
-﻿<template>
+<template>
   <div class="admin-login-page">
     <div class="login-container">
       <div class="login-card">
-
         <div class="login-header">
           <h1 class="login-title">悦社管理后台</h1>
+          <p class="login-subtitle">欢迎回来！请使用 Logto 云认证登录</p>
         </div>
-
 
         <div v-if="unifiedMessage" class="message" :class="messageType">
           {{ unifiedMessage }}
         </div>
 
-
-        <form @submit.prevent="handleSubmit" class="login-form">
-
-          <div class="form-group">
-            <label for="username" class="form-label">用户名</label>
-            <div class="input-wrapper">
-              <input type="text" id="username" v-model="formData.username" class="form-input"
-                :class="{ 'error': errors.username }" placeholder="请输入用户名" @input="clearError('username')" />
-            </div>
-            <span v-if="errors.username" class="error-message">{{ errors.username }}</span>
-          </div>
-
-
-          <div class="form-group">
-            <label for="password" class="form-label">密码</label>
-            <div class="input-wrapper">
-              <input type="password" id="password" v-model="formData.password" class="form-input"
-                :class="{ 'error': errors.password }" placeholder="请输入密码" @input="clearError('password')" />
-            </div>
-            <span v-if="errors.password" class="error-message">{{ errors.password }}</span>
-          </div>
-
-
-          <button type="submit" class="login-button" :disabled="isSubmitting">
-            <span v-if="isSubmitting">登录中...</span>
-            <span v-else>登录</span>
-          </button>
-        </form>
+        <button class="login-button" @click="handleLogtoLogin" :disabled="isSubmitting">
+          <span v-if="isSubmitting" class="loading-spinner"></span>
+          <span v-else>{{ isSubmitting ? '登录中...' : '使用 Logto 云认证登录' }}</span>
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
-import { useAdminStore } from '@/stores/admin'
+import { ref, reactive, onMounted } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
+import { useAdminStore } from '@/stores/admin';
+import { logtoApi } from '@/api';
 
-// Router
-const router = useRouter()
+const router = useRouter();
+const route = useRoute();
+const adminStore = useAdminStore();
 
-// Store
-const adminStore = useAdminStore()
+const isSubmitting = ref(false);
+const unifiedMessage = ref('');
+const messageType = ref('error'); // 'error' | 'success'
 
-// 响应式数据
-const isSubmitting = ref(false)
-const unifiedMessage = ref('')
-const messageType = ref('error') // 'error' | 'success'
-
-// 表单数据
-const formData = reactive({
-  username: '',
-  password: ''
-})
-
-// 错误信息
-const errors = reactive({
-  username: '',
-  password: ''
-})
-
-// 清除错误信息
-const clearError = (field) => {
-  errors[field] = ''
-  unifiedMessage.value = ''
-}
-
-// 处理表单提交
-const handleSubmit = async () => {
-  // 清除之前的错误信息
-  errors.username = ''
-  errors.password = ''
-  unifiedMessage.value = ''
-
-  // 验证表单
-  let hasError = false
-
-  if (!formData.username.trim()) {
-    errors.username = '请输入用户名'
-    hasError = true
-  } else if (formData.username.length < 2) {
-    errors.username = '用户名至少需要2位'
-    hasError = true
-  }
-
-  if (!formData.password) {
-    errors.password = '请输入密码'
-    hasError = true
-  } else if (formData.password.length < 6) {
-    errors.password = '密码至少需要6位'
-    hasError = true
-  }
-
-  // 如果有错误，不提交表单
-  if (hasError) {
-    return
-  }
-
-  isSubmitting.value = true
-
+// 处理 Logto 登录
+const handleLogtoLogin = async () => {
   try {
-    const result = await adminStore.login({
-      username: formData.username,
-      password: formData.password
-    })
+    isSubmitting.value = true;
+    unifiedMessage.value = '';
 
-    if (result.success) {
-      unifiedMessage.value = '登录成功，正在跳转...'
-      messageType.value = 'success'
-
-      // 延迟跳转，让用户看到成功提示
-      setTimeout(() => {
-        router.push('/admin/api-docs')
-      }, 1000)
+    console.log('正在获取 Logto 管理员登录地址...');
+    const response = await logtoApi.getAdminSignInUrl();
+    if (response.success && response.data && response.data.signInUrl) {
+      console.log('跳转到 Logto 登录:', response.data.signInUrl);
+      window.location.href = response.data.signInUrl;
     } else {
-      unifiedMessage.value = result.message || '登录失败，请检查用户名和密码'
-      messageType.value = 'error'
+      throw new Error(response.message || '获取登录地址失败');
     }
   } catch (error) {
-    console.error('登录错误:', error)
-    unifiedMessage.value = error.message || '登录失败，请稍后重试'
-    messageType.value = 'error'
+    console.error('登录失败:', error);
+    unifiedMessage.value = error.message || '网络错误，请稍后重试';
+    messageType.value = 'error';
   } finally {
-    isSubmitting.value = false
+    isSubmitting.value = false;
   }
-}
+};
+
+// 检查 URL 中的 code 回调
+onMounted(async () => {
+  const code = route.query.code;
+  if (code) {
+    console.log('检测到 Logto 回调 code，开始处理管理员登录');
+    await handleLogtoCallback(code);
+  }
+});
+
+// 处理 Logto 回调
+const handleLogtoCallback = async (code) => {
+  try {
+    isSubmitting.value = true;
+    unifiedMessage.value = '正在登录...';
+    messageType.value = 'success';
+
+    console.log('调用后端管理员登录回调接口...');
+    const response = await logtoApi.adminCallback({ code });
+
+    if (response.success && response.data) {
+      console.log('管理员登录成功:', response.data);
+
+      const result = await adminStore.logtoLogin(response.data);
+      if (result.success) {
+        unifiedMessage.value = '登录成功，正在跳转...';
+        messageType.value = 'success';
+        setTimeout(() => {
+          router.push('/admin/api-docs');
+        }, 1000);
+      } else {
+        unifiedMessage.value = result.message || '登录失败，请重试';
+        messageType.value = 'error';
+      }
+    } else {
+      throw new Error(response.message || '登录失败');
+    }
+  } catch (error) {
+    console.error('Logto 回调处理失败:', error);
+    unifiedMessage.value = error.message || '登录失败，请重试';
+    messageType.value = 'error';
+  } finally {
+    isSubmitting.value = false;
+  }
+};
 </script>
 
 <style scoped>
@@ -172,6 +135,12 @@ const handleSubmit = async () => {
   font-size: 24px;
   font-weight: 600;
   color: var(--text-color-primary);
+  margin: 0 0 8px 0;
+}
+
+.login-subtitle {
+  font-size: 14px;
+  color: var(--text-color-secondary);
   margin: 0;
 }
 
@@ -194,69 +163,22 @@ const handleSubmit = async () => {
   border: 1px solid #feb2b2;
 }
 
-.login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-color-primary);
-}
-
-.input-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-
-.form-input {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid var(--border-color-primary);
-  border-radius: 6px;
-  font-size: 14px;
-  background: var(--bg-color-primary);
-  transition: border-color 0.2s ease;
-  box-sizing: border-box;
-  color: var(--text-color-primary);
-  caret-color: var(--primary-color);
-}
-
-.form-input:focus {
-  outline: none;
-  border-color: var(--primary-color);
-}
-
-.form-input.error {
-  border-color: var(--primary-color);
-}
-
-.error-message {
-  font-size: 12px;
-  color: var(--primary-color);
-}
-
 .login-button {
   width: 100%;
-  padding: 12px;
+  padding: 14px 24px;
   background: var(--primary-color);
   color: white;
   border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
 }
 
 .login-button:hover:not(:disabled) {
@@ -268,12 +190,21 @@ const handleSubmit = async () => {
   cursor: not-allowed;
 }
 
-/* 响应式设计 */
-@media (max-width: 480px) {
-  .admin-login-page {
-    padding: 10px;
-  }
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
 
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@media (max-width: 480px) {
   .login-card {
     padding: 30px 20px;
   }

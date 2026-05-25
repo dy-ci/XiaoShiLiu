@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 const { HTTP_STATUS, RESPONSE_CODES, ERROR_MESSAGES } = require('../constants');
 const { pool, email: emailConfig } = require('../config/config');
@@ -858,71 +858,9 @@ router.get('/me', authenticateToken, async (req, res) => {
 // 管理员登录
 router.post('/admin/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
-
-    if (!username || !password) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '缺少必要参数' });
-    }
-
-    // 查找管理员
-    const [adminRows] = await pool.execute(
-      'SELECT id, username, password FROM admin WHERE username = ?',
-      [username]
-    );
-
-    if (adminRows.length === 0) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.NOT_FOUND, message: '管理员账号不存在' });
-    }
-
-    const admin = adminRows[0];
-
-    // 验证密码（哈希比较）
-    const [passwordCheck] = await pool.execute(
-      'SELECT 1 FROM admin WHERE id = ? AND password = SHA2(?, 256)',
-      [admin.id.toString(), password]
-    );
-
-    if (passwordCheck.length === 0) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '密码错误' });
-    }
-
-    // 生成JWT令牌
-    const accessToken = generateAccessToken({
-      adminId: admin.id,
-      username: admin.username,
-      type: 'admin'
-    });
-    const refreshToken = generateRefreshToken({
-      adminId: admin.id,
-      username: admin.username,
-      type: 'admin'
-    });
-
-    // 获取用户IP和User-Agent
-    const userIP = getRealIP(req);
-    const userAgent = req.headers['user-agent'] || '';
-
-    // 清除旧会话并保存新会话
-    await pool.execute('UPDATE admin_sessions SET is_active = 0 WHERE admin_id = ?', [admin.id.toString()]);
-    await pool.execute(
-      'INSERT INTO admin_sessions (admin_id, token, refresh_token, expires_at, user_agent, is_active) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), ?, 1)',
-      [admin.id.toString(), accessToken, refreshToken, userAgent]
-    );
-
-    // 移除密码字段
-    delete admin.password;
-
-    res.json({
-      code: RESPONSE_CODES.SUCCESS,
-      message: '登录成功',
-      data: {
-        admin,
-        tokens: {
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          expires_in: 3600
-        }
-      }
+    return res.status(HTTP_STATUS.METHOD_NOT_ALLOWED).json({
+      code: RESPONSE_CODES.ERROR,
+      message: '管理员登录仅支持 Logto OAuth，请使用 /admin/login 页面登录'
     });
   } catch (error) {
     console.error('管理员登录失败:', error);
@@ -933,7 +871,6 @@ router.post('/admin/login', async (req, res) => {
 // 获取当前管理员信息
 router.get('/admin/me', authenticateToken, async (req, res) => {
   try {
-    // 检查是否为管理员token
     if (!req.user.type || req.user.type !== 'admin') {
       return res.status(HTTP_STATUS.FORBIDDEN).json({ code: RESPONSE_CODES.FORBIDDEN, message: '权限不足' });
     }
@@ -941,7 +878,7 @@ router.get('/admin/me', authenticateToken, async (req, res) => {
     const adminId = req.user.adminId;
 
     const [adminRows] = await pool.execute(
-      'SELECT id, username FROM admin WHERE id = ?',
+      'SELECT id, username, nickname, avatar, is_super, permissions, logto_id FROM admin WHERE id = ?',
       [adminId.toString()]
     );
 
@@ -949,10 +886,28 @@ router.get('/admin/me', authenticateToken, async (req, res) => {
       return res.status(HTTP_STATUS.NOT_FOUND).json({ code: RESPONSE_CODES.NOT_FOUND, message: '管理员不存在' });
     }
 
+    const admin = adminRows[0];
+    let permissions = [];
+    if (admin.permissions) {
+      try {
+        permissions = typeof admin.permissions === 'string' ? JSON.parse(admin.permissions) : admin.permissions;
+      } catch (e) {
+        permissions = [];
+      }
+    }
+
     res.json({
       code: RESPONSE_CODES.SUCCESS,
       message: 'success',
-      data: adminRows[0]
+      data: {
+        id: admin.id,
+        username: admin.username,
+        nickname: admin.nickname,
+        avatar: admin.avatar,
+        isSuper: admin.is_super === 1,
+        permissions,
+        logtoId: admin.logto_id
+      }
     });
   } catch (error) {
     console.error('获取管理员信息失败:', error);
@@ -993,19 +948,41 @@ router.get('/admin/admins', authenticateToken, async (req, res) => {
 
     // 查询管理员列表
     const dataQuery = `
-      SELECT username, password, created_at 
+      SELECT id, username, nickname, avatar, is_super, permissions, logto_id, created_at 
       FROM admin 
       ${whereClause}
       ORDER BY ${sortField} ${sortOrder} 
       LIMIT ? OFFSET ?
     `;
     const [adminRows] = await pool.execute(dataQuery, [...params, String(limit), String(offset)]);
+    
+    // 处理权限字段
+    const processedRows = adminRows.map(admin => {
+      let permissions = [];
+      if (admin.permissions) {
+        try {
+          permissions = typeof admin.permissions === 'string' ? JSON.parse(admin.permissions) : admin.permissions;
+        } catch (e) {
+          permissions = [];
+        }
+      }
+      return {
+        id: admin.id,
+        username: admin.username,
+        nickname: admin.nickname,
+        avatar: admin.avatar,
+        isSuper: admin.is_super === 1,
+        permissions,
+        logtoId: admin.logto_id,
+        createdAt: admin.created_at
+      };
+    });
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,
       message: 'success',
       data: {
-        data: adminRows,
+        data: processedRows,
         pagination: {
           page,
           limit,
@@ -1023,16 +1000,14 @@ router.get('/admin/admins', authenticateToken, async (req, res) => {
 // 创建管理员
 router.post('/admin/admins', authenticateToken, async (req, res) => {
   try {
-    // 检查是否为管理员token
     if (!req.user.type || req.user.type !== 'admin') {
       return res.status(HTTP_STATUS.FORBIDDEN).json({ code: RESPONSE_CODES.FORBIDDEN, message: '权限不足' });
     }
 
-    const { username, password } = req.body;
+    const { username, nickname, permissions, isSuper } = req.body;
 
-    // 验证必填字段
-    if (!username || !password) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '账号和密码不能为空' });
+    if (!username) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '账号不能为空' });
     }
 
     // 检查用户名是否已存在
@@ -1045,10 +1020,10 @@ router.post('/admin/admins', authenticateToken, async (req, res) => {
       return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.CONFLICT, message: '账号已存在' });
     }
 
-    // 创建管理员（密码使用SHA2哈希加密）
+    // 创建管理员（Logto关联，无需密码）
     const [result] = await pool.execute(
-      'INSERT INTO admin (username, password, created_at) VALUES (?, SHA2(?, 256), NOW())',
-      [username, password]
+      'INSERT INTO admin (username, nickname, permissions, is_super, created_at) VALUES (?, ?, ?, ?, NOW())',
+      [username, nickname || username, JSON.stringify(permissions || []), isSuper ? 1 : 0]
     );
 
     res.json({
@@ -1067,22 +1042,16 @@ router.post('/admin/admins', authenticateToken, async (req, res) => {
 // 更新管理员信息
 router.put('/admin/admins/:id', authenticateToken, async (req, res) => {
   try {
-    // 检查是否为管理员token
     if (!req.user.type || req.user.type !== 'admin') {
       return res.status(HTTP_STATUS.FORBIDDEN).json({ code: RESPONSE_CODES.FORBIDDEN, message: '权限不足' });
     }
 
     const adminId = req.params.id;
-    const { password } = req.body;
-
-    // 验证必填字段
-    if (!password) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '密码不能为空' });
-    }
+    const { nickname, permissions, isSuper } = req.body;
 
     // 检查管理员是否存在
     const [adminRows] = await pool.execute(
-      'SELECT username FROM admin WHERE username = ?',
+      'SELECT id FROM admin WHERE id = ?',
       [adminId]
     );
 
@@ -1090,11 +1059,30 @@ router.put('/admin/admins/:id', authenticateToken, async (req, res) => {
       return res.status(HTTP_STATUS.NOT_FOUND).json({ code: RESPONSE_CODES.NOT_FOUND, message: '管理员不存在' });
     }
 
-    // 更新管理员密码（使用SHA2哈希加密）
-    await pool.execute(
-      'UPDATE admin SET password = SHA2(?, 256) WHERE username = ?',
-      [password, adminId]
-    );
+    // 更新管理员信息（Logto关联，无密码）
+    const updateFields = [];
+    const updateValues = [];
+    
+    if (nickname !== undefined) {
+      updateFields.push('nickname = ?');
+      updateValues.push(nickname);
+    }
+    if (permissions !== undefined) {
+      updateFields.push('permissions = ?');
+      updateValues.push(JSON.stringify(permissions));
+    }
+    if (isSuper !== undefined) {
+      updateFields.push('is_super = ?');
+      updateValues.push(isSuper ? 1 : 0);
+    }
+
+    if (updateFields.length > 0) {
+      updateValues.push(adminId);
+      await pool.execute(
+        `UPDATE admin SET ${updateFields.join(', ')} WHERE id = ?`,
+        updateValues
+      );
+    }
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,
@@ -1140,47 +1128,6 @@ router.delete('/admin/admins/:id', authenticateToken, async (req, res) => {
 });
 
 // 重置管理员密码
-router.put('/admin/admins/:id/password', authenticateToken, async (req, res) => {
-  try {
-    // 检查是否为管理员token
-    if (!req.user.type || req.user.type !== 'admin') {
-      return res.status(HTTP_STATUS.FORBIDDEN).json({ code: RESPONSE_CODES.FORBIDDEN, message: '权限不足' });
-    }
-
-    const adminId = req.params.id;
-    const { password } = req.body;
-
-    // 验证密码
-    if (!password || password.length < 6) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '密码不能为空且长度不能少于6位' });
-    }
-
-    // 检查管理员是否存在
-    const [adminRows] = await pool.execute(
-      'SELECT id FROM admin WHERE id = ?',
-      [adminId.toString()]
-    );
-
-    if (adminRows.length === 0) {
-      return res.status(HTTP_STATUS.NOT_FOUND).json({ code: RESPONSE_CODES.NOT_FOUND, message: '管理员不存在' });
-    }
-
-    // 更新密码（使用SHA2哈希加密）
-    await pool.execute(
-      'UPDATE admin SET password = SHA2(?, 256) WHERE id = ?',
-      [password, adminId.toString()]
-    );
-
-    res.json({
-      code: RESPONSE_CODES.SUCCESS,
-      message: '重置密码成功'
-    });
-  } catch (error) {
-    console.error('重置密码失败:', error);
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({ code: RESPONSE_CODES.ERROR, message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
-  }
-});
-
 // 管理员刷新令牌
 router.post('/admin/refresh', async (req, res) => {
   try {

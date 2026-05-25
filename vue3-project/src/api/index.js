@@ -224,6 +224,16 @@ export const logtoApi = {
   // 获取 Logto 登出 URL
   getSignOutUrl() {
     return request.get('/logto/sign-out')
+  },
+
+  // 管理员 - 获取 Logto 登录 URL
+  getAdminSignInUrl() {
+    return request.get('/logto/admin/sign-in')
+  },
+
+  // 管理员 - Logto 回调处理
+  adminCallback(data) {
+    return request.post('/logto/admin/callback', data)
   }
 }
 

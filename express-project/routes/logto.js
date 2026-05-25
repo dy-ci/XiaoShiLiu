@@ -367,6 +367,224 @@ router.get('/sign-out', async (req, res) => {
   }
 });
 
+// 检查 admin 表是否有 logto_id 列
+async function checkAdminLogtoColumnExists() {
+  try {
+    const [columns] = await pool.execute(
+      "SHOW COLUMNS FROM admin LIKE 'logto_id'"
+    );
+    return columns.length > 0;
+  } catch (error) {
+    console.warn('检查 admin 表 logto_id 列失败:', error.message);
+    return false;
+  }
+}
+
+// 从 Logto 用户 ID 查找或创建本地管理员
+async function findOrCreateAdmin(logtoUser, req) {
+  const logtoColumnExists = await checkAdminLogtoColumnExists();
+  const logtoId = logtoUser.sub;
+  const nickname = logtoUser.name || logtoUser.nickname || logtoUser.username || 'Logto 管理员';
+  const avatar = logtoUser.picture || '';
+  const email = logtoUser.email || '';
+  
+  console.log('处理管理员数据:', {
+    logtoId,
+    nickname,
+    hasAvatar: !!avatar,
+    email
+  });
+  
+  if (logtoColumnExists) {
+    console.log('检测到 admin 表 logto_id 列存在，使用 Logto ID 查找管理员');
+    
+    let [admins] = await pool.execute(
+      'SELECT * FROM admin WHERE logto_id = ?',
+      [logtoId]
+    );
+    
+    console.log('数据库查询结果:', {
+      found: admins.length > 0,
+      adminId: admins.length > 0 ? admins[0].id : null,
+      username: admins.length > 0 ? admins[0].username : null
+    });
+    
+    if (admins.length > 0) {
+      const admin = admins[0];
+      console.log('找到已存在的 Logto 管理员');
+      return admin;
+    }
+    
+    console.log('未找到 Logto 管理员，无法登录（需要先在管理后台添加）');
+    return null; // 管理员需要手动创建，不能自动注册
+  } else {
+    console.log('admin 表 logto_id 列不存在，使用 username 查找');
+    
+    // 如果没有 logto_id 列，尝试用 email 或 nickname 匹配
+    let [admins] = await pool.execute(
+      'SELECT * FROM admin WHERE username LIKE ? OR username LIKE ?',
+      [`%${email}%`, `%${nickname}%`]
+    );
+    
+    if (admins.length > 0) {
+      return admins[0];
+    }
+    
+    return null;
+  }
+}
+
+// 管理员 Logto 登录 URL 生成
+router.get('/admin/sign-in', async (req, res) => {
+  try {
+    if (!LOGTO_CONFIG.endpoint || !LOGTO_CONFIG.appId) {
+      console.error('Logto 配置不完整，无法生成管理员登录 URL');
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.ERROR,
+        message: 'Logto 配置未完成，请检查环境变量配置'
+      });
+    }
+
+    const redirectUri = encodeURIComponent(config.logto.adminRedirectUri || config.logto.redirectUri);
+    const state = Math.random().toString(36).substring(2, 15);
+    
+    const signInUrl = `${LOGTO_CONFIG.endpoint}/oidc/auth?` +
+      `client_id=${LOGTO_CONFIG.appId}` +
+      `&redirect_uri=${redirectUri}` +
+      `&response_type=code` +
+      `&scope=openid profile email` +
+      `&state=${state}`;
+    
+    console.log('生成 Logto 管理员登录 URL:', signInUrl);
+    
+    res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: '获取登录地址成功',
+      data: {
+        signInUrl,
+        state
+      }
+    });
+  } catch (error) {
+    console.error('获取管理员登录地址失败:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      code: RESPONSE_CODES.ERROR,
+      message: '获取登录地址失败'
+    });
+  }
+});
+
+// 管理员 Logto 回调处理
+router.post('/admin/callback', async (req, res) => {
+  try {
+    const { code, state } = req.body;
+    
+    if (!code) {
+      console.error('管理员回调请求缺少授权码');
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: '缺少授权码'
+      });
+    }
+
+    console.log('=== Logto 管理员登录开始 ===');
+    console.log('Logto 配置检查:');
+    console.log('  - endpoint:', LOGTO_CONFIG.endpoint);
+    console.log('  - appId:', LOGTO_CONFIG.appId ? '已设置' : '未设置');
+    console.log('  - appSecret:', LOGTO_CONFIG.appSecret ? '已设置' : '未设置');
+
+    if (!LOGTO_CONFIG.endpoint || !LOGTO_CONFIG.appId || !LOGTO_CONFIG.appSecret) {
+      console.error('Logto 配置不完整，无法进行 OAuth 登录');
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.ERROR,
+        message: 'Logto 配置未完成，请检查环境变量'
+      });
+    }
+
+    console.log('处理 Logto 管理员回调，code:', code);
+    
+    const tokenData = await getLogtoToken(code);
+    
+    const logtoUser = await getLogtoUserInfo(tokenData.access_token);
+    
+    if (!logtoUser || !logtoUser.sub) {
+      console.error('Logto 用户信息无效:', logtoUser);
+      return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        code: RESPONSE_CODES.ERROR,
+        message: '无法获取 Logto 用户信息'
+      });
+    }
+    
+    const admin = await findOrCreateAdmin(logtoUser, req);
+    
+    if (!admin) {
+      console.error('管理员未找到，请先在管理后台添加该 Logto 用户');
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '该账户无管理员权限，请联系超级管理员添加'
+      });
+    }
+    
+    // 生成管理员 JWT 令牌
+    const accessToken = generateAccessToken({ adminId: admin.id, username: admin.username });
+    const refreshToken = generateRefreshToken({ adminId: admin.id, username: admin.username });
+    
+    // 清除旧会话并保存新会话
+    await pool.execute('UPDATE admin_sessions SET is_active = 0 WHERE admin_id = ?', [admin.id.toString()]);
+    await pool.execute(
+      'INSERT INTO admin_sessions (admin_id, token, refresh_token, expires_at, user_agent, is_active) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), ?, 1)',
+      [admin.id.toString(), accessToken, refreshToken, req.headers['user-agent'] || '']
+    );
+    
+    // 获取管理员权限
+    let permissions = [];
+    let isSuper = admin.is_super || false;
+    if (admin.permissions) {
+      try {
+        permissions = typeof admin.permissions === 'string' ? JSON.parse(admin.permissions) : admin.permissions;
+      } catch (e) {
+        permissions = [];
+      }
+    }
+    
+    console.log('=== Logto 管理员登录成功 ===');
+    console.log('管理员信息:', {
+      id: admin.id,
+      username: admin.username,
+      isSuper,
+      permissionsCount: permissions.length
+    });
+    
+    res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: '登录成功',
+      data: {
+        admin: {
+          id: admin.id,
+          username: admin.username,
+          nickname: admin.nickname || nickname,
+          avatar: admin.avatar || avatar,
+          isSuper,
+          permissions
+        },
+        tokens: {
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          logto_access_token: tokenData.access_token,
+          logto_refresh_token: tokenData.refresh_token || '',
+          expires_in: tokenData.expires_in || 3600 * 24 * 7
+        }
+      }
+    });
+  } catch (error) {
+    console.error('管理员登录回调处理失败:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      code: RESPONSE_CODES.ERROR,
+      message: error.message || '登录失败'
+    });
+  }
+});
+
 module.exports = {
   router
 };
