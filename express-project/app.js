@@ -21,6 +21,16 @@ const { startAutoUnbanService } = require('./utils/autoUnban');
 // 导入数据库迁移功能
 const { checkAndMigrateAdminTable } = require('./utils/dbMigration');
 
+// 🔍 启动前检查配置（重要！）
+console.log('\n🔍 执行启动前配置检查...');
+try {
+  require('./scripts/checkConfig');
+} catch (err) {
+  console.error('❌ 配置检查失败:', err.message);
+  console.error('❌ 请修复配置问题后重启服务器');
+  process.exit(1);
+}
+
 // 导入路由模块
 const authRoutes = require('./routes/auth');
 const { router: logtoRoutes } = require('./routes/logto');

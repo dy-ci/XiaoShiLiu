@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 悦社动态社区 - 应用配置文件
  * 集中管理所有配置项
  * 
@@ -11,7 +11,46 @@
 const mysql = require('mysql2/promise');
 const path = require('path');
 const crypto = require('crypto');
-require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+
+// 🔍 加载环境变量并记录详细信息
+console.log('\n📦 ===== 环境变量加载 =====');
+const envPath = path.resolve(__dirname, '..', '.env');
+console.log('📁 .env文件路径:', envPath);
+
+try {
+  const fs = require('fs');
+  if (fs.existsSync(envPath)) {
+    console.log('✅ .env文件存在');
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    console.log('📄 .env文件大小:', envContent.length, '字节');
+    
+    // 检查是否包含JWT_SECRET
+    if (envContent.includes('JWT_SECRET')) {
+      console.log('✅ .env文件中包含JWT_SECRET配置');
+      // 提取JWT_SECRET的值（不打印完整值）
+      const jwtMatch = envContent.match(/JWT_SECRET=(.+)/);
+      if (jwtMatch) {
+        console.log('🔐 JWT_SECRET值长度:', jwtMatch[1].length);
+        console.log('🔐 JWT_SECRET前20字符:', jwtMatch[1].substring(0, 20));
+      }
+    } else {
+      console.log('❌ .env文件中不包含JWT_SECRET！');
+    }
+  } else {
+    console.log('❌ .env文件不存在！将使用默认值或随机生成');
+  }
+} catch (err) {
+  console.error('❌ 读取.env文件失败:', err.message);
+}
+
+require('dotenv').config({ path: envPath });
+
+// 🔍 验证关键环境变量是否加载成功
+console.log('\n🔍 环境变量验证:');
+console.log('   process.env.JWT_SECRET:', process.env.JWT_SECRET ? '已设置 (长度:' + process.env.JWT_SECRET.length + ')' : '❌ 未设置！');
+console.log('   process.env.DB_HOST:', process.env.DB_HOST || '(使用默认值)');
+console.log('   process.env.NODE_ENV:', process.env.NODE_ENV || '(使用默认值)');
+console.log('📦 ===== 环境变量加载结束 =====\n');
 
 
 const config = {
@@ -26,12 +65,22 @@ const config = {
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()) : ['http://localhost:5173', 'http://localhost:3001']
   },
 
-  // JWT配置
-  jwt: {
-    secret: process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex'),
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-    refreshExpiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || '30d'
-  },
+  // JWT配置 - 添加安全检查
+  jwt: (() => {
+    const secret = process.env.JWT_SECRET;
+    
+    if (!secret) {
+      console.error('\n⚠️  警告: JWT_SECRET 环境变量未设置！');
+      console.error('⚠️  将使用随机生成的密钥（每次重启都会改变）');
+      console.error('⚠️  请在 .env 文件中设置固定的 JWT_SECRET\n');
+    }
+    
+    return {
+      secret: secret || crypto.randomBytes(32).toString('hex'),
+      expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+      refreshExpiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || '30d'
+    };
+  })(),
 
   // 数据库配置
   database: {
