@@ -72,7 +72,10 @@ function createCrudHandlers(config) {
       if (beforeCreate) {
         const customValidation = await beforeCreate(data, req)
         if (!customValidation.isValid) {
-          return error(res, customValidation.message, customValidation.code || RESPONSE_CODES.VALIDATION_ERROR, customValidation.code || HTTP_STATUS.BAD_REQUEST)
+          return error(res, 
+            customValidation.message, 
+            customValidation.code || RESPONSE_CODES.VALIDATION_ERROR, 
+            customValidation.statusCode || HTTP_STATUS.BAD_REQUEST)
         }
       }
 
@@ -122,7 +125,10 @@ function createCrudHandlers(config) {
       if (beforeUpdate) {
         const customValidation = await beforeUpdate(updateData, id, req)
         if (!customValidation.isValid) {
-          return error(res, customValidation.message, customValidation.code || RESPONSE_CODES.VALIDATION_ERROR, customValidation.code || HTTP_STATUS.BAD_REQUEST)
+          return error(res, 
+            customValidation.message, 
+            customValidation.code || RESPONSE_CODES.VALIDATION_ERROR, 
+            customValidation.statusCode || HTTP_STATUS.BAD_REQUEST)
         }
       }
 
@@ -156,7 +162,10 @@ function createCrudHandlers(config) {
       if (beforeDelete) {
         const customValidation = await beforeDelete(id, req)
         if (!customValidation.isValid) {
-          return error(res, customValidation.message, customValidation.code || RESPONSE_CODES.VALIDATION_ERROR, customValidation.code || HTTP_STATUS.BAD_REQUEST)
+          return error(res, 
+            customValidation.message, 
+            customValidation.code || RESPONSE_CODES.VALIDATION_ERROR, 
+            customValidation.statusCode || HTTP_STATUS.BAD_REQUEST)
         }
       }
 
@@ -198,7 +207,10 @@ function createCrudHandlers(config) {
         for (const id of ids) {
           const customValidation = await beforeDelete(id, req)
           if (!customValidation.isValid) {
-            return error(res, customValidation.message, customValidation.code || RESPONSE_CODES.VALIDATION_ERROR, customValidation.code || HTTP_STATUS.BAD_REQUEST)
+            return error(res, 
+              customValidation.message, 
+              customValidation.code || RESPONSE_CODES.VALIDATION_ERROR, 
+              customValidation.statusCode || HTTP_STATUS.BAD_REQUEST)
           }
         }
       }

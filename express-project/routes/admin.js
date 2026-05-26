@@ -2466,13 +2466,109 @@ const adminsCrudConfig = {
   table: 'admin',
   name: '管理员',
   requiredFields: ['username'],
-  updateFields: [],
+  updateFields: ['nickname', 'is_super', 'permissions', 'logto_id'],
   uniqueFields: ['username'],
   searchFields: {
     username: { operator: 'LIKE' }
   },
   allowedSortFields: ['username', 'created_at'],
-  defaultOrderBy: 'created_at DESC'
+  defaultOrderBy: 'created_at DESC',
+
+  // 创建前的验证 - 只有超级管理员才能创建
+  beforeCreate: async (data, req) => {
+    if (!req.user.isSuper) {
+      return {
+        isValid: false,
+        message: '只有超级管理员才能创建管理员账户',
+        code: RESPONSE_CODES.FORBIDDEN,
+        statusCode: HTTP_STATUS.FORBIDDEN
+      }
+    }
+
+    // 检查用户名是否已存在
+    const [existing] = await pool.execute(
+      'SELECT id FROM admin WHERE username = ?',
+      [data.username]
+    )
+    if (existing.length > 0) {
+      return {
+        isValid: false,
+        message: '该用户名已被使用',
+        code: RESPONSE_CODES.CONFLICT,
+        statusCode: HTTP_STATUS.CONFLICT
+      }
+    }
+
+    return { isValid: true }
+  },
+
+  // 更新前的验证 - 权限检查
+  beforeUpdate: async (data, id, req) => {
+    const currentAdminId = req.user.id
+
+    // 不允许修改自己的超级管理员状态
+    if (String(id) === String(currentAdminId) && data.is_super !== undefined) {
+      if (data.is_super === 0 || data.is_super === false) {
+        return {
+          isValid: false,
+          message: '不能取消自己的超级管理员权限',
+          code: RESPONSE_CODES.FORBIDDEN,
+          statusCode: HTTP_STATUS.FORBIDDEN
+        }
+      }
+    }
+
+    // 只有超级管理员才能修改他人权限或设置超级管理员
+    if (!req.user.isSuper && String(id) !== String(currentAdminId)) {
+      return {
+        isValid: false,
+        message: '只有超级管理员才能修改其他管理员信息',
+        code: RESPONSE_CODES.FORBIDDEN,
+        statusCode: HTTP_STATUS.FORBIDDEN
+      }
+    }
+
+    // 如果要设置为超级管理员，必须是超级管理员操作
+    if (data.is_super === 1 || data.is_super === true) {
+      if (!req.user.isSuper) {
+        return {
+          isValid: false,
+          message: '只有超级管理员才能设置超级管理员权限',
+          code: RESPONSE_CODES.FORBIDDEN,
+          statusCode: HTTP_STATUS.FORBIDDEN
+        }
+      }
+    }
+
+    return { isValid: true }
+  },
+
+  // 删除前的验证 - 只有超级管理员才能删除
+  beforeDelete: async (id, req) => {
+    const currentAdminId = req.user.id
+
+    // 不能删除自己
+    if (String(id) === String(currentAdminId)) {
+      return {
+        isValid: false,
+        message: '不能删除自己的账户',
+        code: RESPONSE_CODES.FORBIDDEN,
+        statusCode: HTTP_STATUS.FORBIDDEN
+      }
+    }
+
+    // 只有超级管理员才能删除其他管理员
+    if (!req.user.isSuper) {
+      return {
+        isValid: false,
+        message: '只有超级管理员才能删除管理员账户',
+        code: RESPONSE_CODES.FORBIDDEN,
+        statusCode: HTTP_STATUS.FORBIDDEN
+      }
+    }
+
+    return { isValid: true }
+  }
 }
 
 const adminsHandlers = createCrudHandlers(adminsCrudConfig)

@@ -18,6 +18,8 @@ const config = require('./config/config');
 const { HTTP_STATUS, RESPONSE_CODES } = require('./constants');
 // 导入自动解封功能
 const { startAutoUnbanService } = require('./utils/autoUnban');
+// 导入数据库迁移功能
+const { checkAndMigrateAdminTable } = require('./utils/dbMigration');
 
 // 导入路由模块
 const authRoutes = require('./routes/auth');
@@ -124,9 +126,12 @@ startAutoUnbanService();
 
 // 启动服务器
 const PORT = config.server.port;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`● 服务器运行在端口 ${PORT}`);
   console.log(`● 环境: ${config.server.env}`);
+  
+  // 自动检查并迁移数据库
+  await checkAndMigrateAdminTable();
 });
 
 module.exports = app;
