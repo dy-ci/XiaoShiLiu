@@ -101,32 +101,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// 🔍 调试端点 - 查看当前配置（仅用于排查问题，生产环境可删除）
-app.get('/api/debug/config', (req, res) => {
-  // 从config对象中正确获取JWT_SECRET
-  const jwtSecret = config.jwt.secret;
-  res.json({
-    environment: config.server.env,
-    isProduction: config.server.env === 'production',
-    jwtConfig: {
-      secretLength: jwtSecret ? jwtSecret.length : 0,
-      secretPreview: jwtSecret ? jwtSecret.substring(0, 20) + '...' : '(未设置)',
-      isDefaultSecret: jwtSecret ? jwtSecret.includes('xiaoshiliu_secret_key') : false,
-      expiresIn: config.jwt.expiresIn,
-      refreshExpiresIn: config.jwt.refreshExpiresIn
-    },
-    database: {
-      host: config.database.host,
-      user: config.database.user,
-      database: config.database.name,
-      port: config.database.port
-    },
-    serverTime: new Date().toISOString(),
-    nodeVersion: process.version,
-    uptime: process.uptime()
-  });
-});
-
 // 路由配置
 app.use('/api', apiLimiter);
 app.use('/api/auth', authLimiter);

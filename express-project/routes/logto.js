@@ -627,12 +627,12 @@ router.post('/admin/callback', async (req, res) => {
     });
     
     // 🔍 生产环境调试：打印Token和Secret信息
-    const { JWT_SECRET } = require('../config/config');
+    const jwtSecret = config.jwt.secret;
     console.log('\n🔑 ===== 登录成功 - Token生成信息 =====');
     console.log('📅 时间:', new Date().toISOString());
     console.log('🔐 JWT Secret:');
-    console.log('   长度:', JWT_SECRET.length);
-    console.log('   值:', JWT_SECRET);
+    console.log('   长度:', jwtSecret ? jwtSecret.length : 0);
+    console.log('   值:', jwtSecret || '(未设置)');
     console.log('🎫 生成的AccessToken:');
     console.log('   长度:', accessToken.length);
     console.log('   完整值:', accessToken);
