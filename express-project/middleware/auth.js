@@ -72,7 +72,7 @@ async function authenticateToken(req, res, next) {
     }
 
     // 检查是否为管理员token
-    if (decoded.type === 'admin') {
+    if (decoded && decoded.type === 'admin') {
       // 管理员token验证 - 需要获取is_super和permissions字段！
       const [adminRows] = await pool.execute(
         'SELECT id, username, is_super, permissions FROM admin WHERE id = ?',

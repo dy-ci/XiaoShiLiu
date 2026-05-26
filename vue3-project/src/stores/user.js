@@ -83,9 +83,18 @@ export const useUserStore = defineStore('user', () => {
     } catch (error) {
       console.error('退出登录失败:', error)
     } finally {
-      // 清除本地用户信息
+      // 清除所有本地存储
       userInfo.value = null
       localStorage.removeItem('userInfo')
+      localStorage.removeItem('token')
+      localStorage.removeItem('refresh_token')
+      localStorage.removeItem('user_token')
+      localStorage.removeItem('user_refresh_token')
+
+      // 清除所有可能的 Cookie (通过后端清除)
+      document.cookie.split(";").forEach(function(c) {
+        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+      });
 
       // 重置未读通知数量
       try {

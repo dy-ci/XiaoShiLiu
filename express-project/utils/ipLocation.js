@@ -13,7 +13,7 @@ async function getIPLocation(ip) {
       return '本地';
     }
 
-    // 调用IP属地API
+    // 调用IP属地API (ip9.com.cn)
     const response = await axios.get(config.ipLocation.primaryApi, {
       params: {
         ip: ip
@@ -21,13 +21,12 @@ async function getIPLocation(ip) {
       timeout: config.ipLocation.primaryTimeout
     });
 
-    if (response.data && response.data.code === 200 && response.data.data) {
+    // ip9.com.cn 返回格式: { ret: 200, data: { prov: "北京", city: "北京", ... } }
+    if (response.data && response.data.ret === 200 && response.data.data) {
       const locationData = response.data.data;
-      // 根据API返回的数据结构提取省份信息
-      if (locationData.subdivisions) {
-        return locationData.subdivisions.replace('省', '').replace('壮族自治区', '').replace('回族自治区', '').replace('回族自治区', '').replace('特别行政区', '').replace('市', '').replace('维吾尔自治区', '').replace('自治区', '');
-      } else if (locationData.region) {
-        return locationData.region.replace('省', '').replace('壮族自治区', '').replace('回族自治区', '').replace('回族自治区', '').replace('特别行政区', '').replace('市', '').replace('维吾尔自治区', '').replace('自治区', '');
+      // 从 ip9.com.cn 提取省份信息
+      if (locationData.prov) {
+        return locationData.prov.replace('省', '').replace('壮族自治区', '').replace('回族自治区', '').replace('回族自治区', '').replace('特别行政区', '').replace('市', '').replace('维吾尔自治区', '').replace('自治区', '');
       }
     }
 
@@ -40,8 +39,16 @@ async function getIPLocation(ip) {
         timeout: config.ipLocation.backupTimeout
       });
 
-      if (backupResponse.data && backupResponse.data.code === 200 && backupResponse.data.data && backupResponse.data.data.province) {
-        return backupResponse.data.data.province.replace('省', '').replace('壮族自治区', '').replace('回族自治区', '').replace('回族自治区', '').replace('特别行政区', '').replace('市', '').replace('维吾尔自治区', '').replace('自治区', '');
+      if (backupResponse.data && backupResponse.data.code === 200 && backupResponse.data.data) {
+        const locationData = backupResponse.data.data;
+        // 备用接口可能是 subdivsions 或 region 字段
+        if (locationData.subdivisions) {
+          return locationData.subdivisions.replace('省', '').replace('壮族自治区', '').replace('回族自治区', '').replace('回族自治区', '').replace('特别行政区', '').replace('市', '').replace('维吾尔自治区', '').replace('自治区', '');
+        } else if (locationData.region) {
+          return locationData.region.replace('省', '').replace('壮族自治区', '').replace('回族自治区', '').replace('回族自治区', '').replace('特别行政区', '').replace('市', '').replace('维吾尔自治区', '').replace('自治区', '');
+        } else if (locationData.prov) {
+          return locationData.prov.replace('省', '').replace('壮族自治区', '').replace('回族自治区', '').replace('回族自治区', '').replace('特别行政区', '').replace('市', '').replace('维吾尔自治区', '').replace('自治区', '');
+        }
       }
     } catch (backupError) {
       console.error('备用IP属地接口调用失败:', backupError.message);

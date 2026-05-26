@@ -105,6 +105,15 @@ export const useAdminStore = defineStore('admin', () => {
 
       localStorage.removeItem('admin_info')
       localStorage.removeItem('admin_permissions')
+      localStorage.removeItem('token')
+      localStorage.removeItem('refresh_token')
+      localStorage.removeItem('admin_token')
+      localStorage.removeItem('admin_refresh_token')
+
+      // 清除所有可能的 Cookie (通过后端清除)
+      document.cookie.split(";").forEach(function(c) {
+        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+      });
 
       // 如果后端返回失败，记录错误但仍然完成本地清除
       if (!response.success) {
@@ -119,6 +128,16 @@ export const useAdminStore = defineStore('admin', () => {
       permissions.value = []
       localStorage.removeItem('admin_info')
       localStorage.removeItem('admin_permissions')
+      localStorage.removeItem('token')
+      localStorage.removeItem('refresh_token')
+      localStorage.removeItem('admin_token')
+      localStorage.removeItem('admin_refresh_token')
+
+      // 清除所有可能的 Cookie
+      document.cookie.split(";").forEach(function(c) {
+        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+      });
+
       return { success: false, message: error.message }
     }
   }

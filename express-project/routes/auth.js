@@ -812,9 +812,14 @@ router.post('/logout', authenticateToken, async (req, res) => {
       secure: isProduction,
       sameSite: 'lax'  // 与登录时一致，使用lax
     };
-    
-    res.clearCookie('token', clearOptions);
-    res.clearCookie('refresh_token', clearOptions);
+
+    // 清除所有可能存在的 Cookie
+    res.clearCookie('token', { path: '/' });
+    res.clearCookie('refresh_token', { path: '/' });
+    res.clearCookie('admin_token', { path: '/' });
+    res.clearCookie('admin_refresh_token', { path: '/' });
+    res.clearCookie('user_token', { path: '/' });
+    res.clearCookie('user_refresh_token', { path: '/' });
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,
@@ -903,9 +908,18 @@ router.get('/admin/me', authenticateToken, async (req, res) => {
   try {
     const adminId = req.user.adminId;
 
+    if (!adminId) {
+      console.error('获取管理员信息失败: req.user.adminId 不存在');
+      console.error('req.user 对象:', req.user);
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '无效的管理员会话，请重新登录'
+      });
+    }
+
     const [adminRows] = await pool.execute(
       'SELECT id, username, nickname, is_super, permissions, logto_id FROM admin WHERE id = ?',
-      [adminId.toString()]
+      [String(adminId)]
     );
 
     if (adminRows.length === 0) {
@@ -1244,22 +1258,18 @@ router.post('/admin/logout', authenticateToken, async (req, res) => {
     // 注销会话
     await pool.execute(
       'UPDATE admin_sessions SET is_active = 0 WHERE admin_id = ? AND token = ?',
-      [adminId.toString(), token]
+      [String(adminId), String(token)]
     );
 
     console.log(`管理员退出成功 - 管理员ID: ${adminId}`);
 
-    // 清除管理员认证Cookie（使用与设置时相同的选项）
-    const isProduction = config.server.env === 'production';
-    const clearOptions = {
-      path: '/',
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax'
-    };
-
-    res.clearCookie('admin_token', clearOptions);
-    res.clearCookie('admin_refresh_token', clearOptions);
+    // 清除所有可能存在的认证Cookie
+    res.clearCookie('admin_token', { path: '/' });
+    res.clearCookie('admin_refresh_token', { path: '/' });
+    res.clearCookie('token', { path: '/' });
+    res.clearCookie('refresh_token', { path: '/' });
+    res.clearCookie('user_token', { path: '/' });
+    res.clearCookie('user_refresh_token', { path: '/' });
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,

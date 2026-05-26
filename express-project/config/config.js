@@ -171,8 +171,8 @@ const config = {
 
   // IP属地查询配置
   ipLocation: {
-    primaryApi: process.env.IP_LOCATION_PRIMARY_API || 'https://api.pearktrue.cn/api/ip/details',
-    backupApi: process.env.IP_LOCATION_BACKUP_API || 'https://api.pearktrue.cn/api/ip/high',
+    primaryApi: process.env.IP_LOCATION_PRIMARY_API || 'https://ip9.com.cn/get',
+    backupApi: process.env.IP_LOCATION_BACKUP_API || 'https://api.pearktrue.cn/api/ip/details',
     primaryTimeout: parseInt(process.env.IP_LOCATION_PRIMARY_TIMEOUT) || 10000,
     backupTimeout: parseInt(process.env.IP_LOCATION_BACKUP_TIMEOUT) || 5000
   },
