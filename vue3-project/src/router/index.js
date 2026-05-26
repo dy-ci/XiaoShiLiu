@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAdminStore } from '@/stores/admin'
 import layout from '@/views/layout/index.vue'
 import explore from '@/views/explore/index.vue'
 import publish from '@/views/publish/index.vue'
@@ -35,26 +34,6 @@ import AdminSessionManagement from '@/views/admin/AdminSessionManagement.vue'
 import AdminManagement from '@/views/admin/AdminManagement.vue'
 import AuditManagement from '@/views/admin/AuditManagement.vue'
 import PostAudit from '@/views/admin/PostAudit.vue'
-
-// 路由权限映射
-const routePermissions = {
-  '/admin/api-docs': 'api_docs:view',
-  '/admin/monitor': 'monitor:view',
-  '/admin/users': 'users:view',
-  '/admin/posts': 'posts:view',
-  '/admin/post-audit': 'post_audit:view',
-  '/admin/comments': 'comments:view',
-  '/admin/categories': 'categories:view',
-  '/admin/tags': 'tags:view',
-  '/admin/likes': 'likes:view',
-  '/admin/collections': 'collections:view',
-  '/admin/follows': 'follows:view',
-  '/admin/notifications': 'notifications:view',
-  '/admin/sessions': 'user_sessions:view',
-  '/admin/admin-sessions': 'admin_sessions:view',
-  '/admin/audit': 'audit:view',
-  '/admin/admins': 'admins:view'
-}
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -299,33 +278,6 @@ const router = createRouter({
       ]
     }
   ],
-})
-
-// 全局路由守卫
-router.beforeEach((to, from, next) => {
-  // 如果是管理员后台路由（除了登录页）
-  if (to.path.startsWith('/admin') && to.path !== '/admin/login' && to.path !== '/admin/callback') {
-    const adminStore = useAdminStore()
-    
-    // 检查是否已登录
-    if (!adminStore.isLoggedIn) {
-      next('/admin/login')
-      return
-    }
-    
-    // 检查权限
-    const requiredPermission = routePermissions[to.path]
-    if (requiredPermission && !adminStore.hasPermission(requiredPermission)) {
-      // 无权限，重定向到第一个有权限的页面或api-docs
-      const firstAllowedPath = Object.keys(routePermissions).find(path => 
-        adminStore.hasPermission(routePermissions[path])
-      )
-      next(firstAllowedPath || '/admin/api-docs')
-      return
-    }
-  }
-  
-  next()
 })
 
 export default router
