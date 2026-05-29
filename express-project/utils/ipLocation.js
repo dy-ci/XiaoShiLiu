@@ -1,47 +1,36 @@
 const axios = require('axios');
 const config = require('../config/config');
 
-/**
- * 获取IP属地信息
- * @param {string} ip - IP地址
- * @returns {Promise<string>} 返回省份信息
- */
 async function getIPLocation(ip) {
   try {
-    // 如果是本地IP，返回默认值
     if (!ip || ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
       return '本地';
     }
 
-    // 调用IP属地API (ip9.com.cn)
     const response = await axios.get(config.ipLocation.primaryApi, {
-      params: {
-        ip: ip
-      },
-      timeout: config.ipLocation.primaryTimeout
+      params: { ip: ip },
+      timeout: config.ipLocation.primaryTimeout,
+      responseType: 'arraybuffer'
     });
 
-    // ip9.com.cn 返回格式: { ret: 200, data: { prov: "北京", city: "北京", ... } }
-    if (response.data && response.data.ret === 200 && response.data.data) {
-      const locationData = response.data.data;
-      // 从 ip9.com.cn 提取省份信息
+    const dataStr = Buffer.from(response.data).toString('utf-8');
+    const data = JSON.parse(dataStr);
+
+    if (data && data.ret === 200 && data.data) {
+      const locationData = data.data;
       if (locationData.prov) {
         return locationData.prov.replace('省', '').replace('壮族自治区', '').replace('回族自治区', '').replace('回族自治区', '').replace('特别行政区', '').replace('市', '').replace('维吾尔自治区', '').replace('自治区', '');
       }
     }
 
-    // 如果主接口返回未知，尝试备用接口
     try {
       const backupResponse = await axios.get(config.ipLocation.backupApi, {
-        params: {
-          ip: ip
-        },
+        params: { ip: ip },
         timeout: config.ipLocation.backupTimeout
       });
 
       if (backupResponse.data && backupResponse.data.code === 200 && backupResponse.data.data) {
         const locationData = backupResponse.data.data;
-        // 备用接口可能是 subdivsions 或 region 字段
         if (locationData.subdivisions) {
           return locationData.subdivisions.replace('省', '').replace('壮族自治区', '').replace('回族自治区', '').replace('回族自治区', '').replace('特别行政区', '').replace('市', '').replace('维吾尔自治区', '').replace('自治区', '');
         } else if (locationData.region) {

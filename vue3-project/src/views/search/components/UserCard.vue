@@ -1,4 +1,4 @@
-﻿<template>
+﻿﻿<template>
     <div class="user-card" @click="handleUserClick">
         <BaseSkeleton v-if="!avatarLoaded" type="user-card" avatar-size="48px" :show-stats="true" :show-button="true" />
         <div class="user-content" :class="{ 'content-hidden': !avatarLoaded }">
