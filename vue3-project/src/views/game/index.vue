@@ -67,6 +67,8 @@ onMounted(() => {
       <div class="header-title">
         <h1 class="page-title">Minecraft 外置登录</h1>
         <p class="page-desc">管理你的MC游戏角色，上传皮肤和披风</p>
+        <p class="page-desc">使用本功能则默认您已经拥有Minecraft正版游戏，否则请勿使用！此功能不能代替正版Minecraft游戏。</p>
+        <p class="page-desc">字体为<a href="https://www.fontrepo.com/font/29649/minecraft" target="_blank">Minecraft.ttf</a>，采用<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank">CC by 4.0</a>。</p>
       </div>
       
       <div class="header-actions">

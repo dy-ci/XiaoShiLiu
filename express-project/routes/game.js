@@ -11,6 +11,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const crypto = require('crypto');
+const axios = require('axios');
 const { HTTP_STATUS, RESPONSE_CODES } = require('../constants');
 const { authenticateToken } = require('../middleware/auth');
 const { uploadImage } = require('../utils/uploadHelper');
@@ -592,6 +593,53 @@ router.use((error, req, res, next) => {
     code: RESPONSE_CODES.ERROR,
     message: '服务器内部错误'
   });
+});
+
+// ========== 皮肤图片代理（解决 CORS 跨域问题） ==========
+// 用法: GET /api/game/skin-proxy?url=图片URL
+router.get('/skin-proxy', async (req, res) => {
+  try {
+    const imageUrl = req.query.url;
+    if (!imageUrl) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: '缺少 url 参数'
+      });
+    }
+
+    console.log(`[Game] 皮肤代理请求: ${imageUrl.substring(0, 80)}...`);
+
+    // 获取图片
+    const response = await axios.get(imageUrl, {
+      responseType: 'arraybuffer',
+      timeout: 10000,
+      maxContentLength: 2 * 1024 * 1024 // 限制 2MB
+    });
+
+    // 设置 CORS 头
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    // 设置缓存
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // 缓存一天
+
+    // 判断 Content-Type
+    const contentType = response.headers['content-type'] || 'image/png';
+    res.setHeader('Content-Type', contentType);
+
+    // 返回图片内容
+    res.send(response.data);
+
+    console.log(`[Game] 皮肤代理成功: ${response.data.length} bytes`);
+
+  } catch (error) {
+    console.error('[Game] 皮肤代理失败:', error.message);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      code: RESPONSE_CODES.ERROR,
+      message: '图片获取失败'
+    });
+  }
 });
 
 module.exports = router;

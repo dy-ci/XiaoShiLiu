@@ -59,6 +59,23 @@ const canvasRef = ref(null)
 const currentAnimation = ref(props.defaultAnimation)
 let viewer = null
 
+// 获取代理 URL（解决 CORS 问题）
+function getProxyUrl(url) {
+  if (!url) return ''
+  // 如果是同源 URL，不需要代理
+  try {
+    const urlObj = new URL(url)
+    if (urlObj.origin === window.location.origin) {
+      return url
+    }
+  } catch (e) {
+    // 相对 URL，同源
+    return url
+  }
+  // 跨域 URL，走代理
+  return `/api/game/skin-proxy?url=${encodeURIComponent(url)}`
+}
+
 // 动作列表
 const animations = [
   { key: 'idle', label: '站立', icon: '🧍' },
@@ -101,15 +118,15 @@ function initViewer() {
     animation: createAnimation(props.defaultAnimation)
   }
 
-  // 如果有皮肤URL则加载
+  // 如果有皮肤URL则加载（走代理解决CORS）
   if (props.skinUrl) {
-    options.skin = props.skinUrl
+    options.skin = getProxyUrl(props.skinUrl)
     options.model = props.skinModel === 'slim' ? 'slim' : (props.skinModel === 'classic' ? 'default' : 'auto-detect')
   }
 
-  // 如果有披风URL则加载
+  // 如果有披风URL则加载（走代理解决CORS）
   if (props.capeUrl) {
-    options.cape = props.capeUrl
+    options.cape = getProxyUrl(props.capeUrl)
   }
 
   viewer = new skinview3d.SkinViewer(options)
@@ -129,7 +146,7 @@ async function loadSkin(url) {
   if (!viewer) return
   if (url) {
     try {
-      await viewer.loadSkin(url, {
+      await viewer.loadSkin(getProxyUrl(url), {
         model: props.skinModel === 'slim' ? 'slim' : (props.skinModel === 'classic' ? 'default' : 'auto-detect')
       })
     } catch (e) {
@@ -144,7 +161,7 @@ async function loadCape(url) {
   if (!viewer) return
   if (url) {
     try {
-      await viewer.loadCape(url)
+      await viewer.loadCape(getProxyUrl(url))
     } catch (e) {
       console.warn('[SkinViewer3D] 披风加载失败:', e)
     }

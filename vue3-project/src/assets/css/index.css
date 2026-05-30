@@ -4,7 +4,7 @@
 /* Minecraft 字体（用于 3D 皮肤预览名字标签） */
 @font-face {
   font-family: 'Minecraft';
-  src: url('/fonts/minecraft.woff2') format('woff2');
+  src: url('/fonts/minecraft.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
