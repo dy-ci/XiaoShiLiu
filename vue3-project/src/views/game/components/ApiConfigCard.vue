@@ -34,7 +34,7 @@ function toggleFullConfig() {
   <div class="api-config-card">
     <div class="config-header" @click="toggleFullConfig">
       <div>
-        <h3>⚙️ Yggdrasil API 配置</h3>
+        <h3>Yggdrasil API 配置</h3>
         <p>用于配置 authlib-injector 或第三方启动器</p>
       </div>
       <button class="toggle-btn">
@@ -44,7 +44,7 @@ function toggleFullConfig() {
 
     <div v-if="showFullConfig" class="config-body">
       <div class="info-section">
-        <h4>📌 基本信息</h4>
+        <h4>基本信息</h4>
         <div class="config-item">
           <label>服务器名称</label>
           <span>{{ serverName }}</span>
@@ -64,7 +64,7 @@ function toggleFullConfig() {
       </div>
 
       <div class="api-section">
-        <h4>🔗 API 地址</h4>
+        <h4>API 地址</h4>
         <div class="url-box">
           <code>{{ apiRootUrl }}</code>
           <button 
@@ -72,17 +72,17 @@ function toggleFullConfig() {
             @click.stop="copyToClipboard(apiRootUrl, 'api')"
             :class="{ copied: copiedField === 'api' }"
           >
-            {{ copiedField === 'api' ? '✅ 已复制' : '复制' }}
+            {{ copiedField === 'api' ? '已复制' : '复制' }}
           </button>
         </div>
         
         <p class="usage-tip">
-          💡 将此地址填入 authlib-injector 的 "Yggdrasil API Root" 字段
+          将此地址填入 authlib-injector 的 "Yggdrasil API Root" 字段
         </p>
       </div>
 
       <div class="guide-section">
-        <h4>📖 使用指南</h4>
+        <h4>使用指南</h4>
         
         <div class="step-card">
           <div class="step-number">1</div>
@@ -111,7 +111,7 @@ function toggleFullConfig() {
       </div>
 
       <div class="notice-section">
-        <h4>⚠️ 注意事项</h4>
+        <h4>注意事项</h4>
         <ul>
           <li><strong>密码安全：</strong>独立密码与社区账户密码不同，请妥善保管</li>
           <li><strong>Token 有效期：</strong>访问令牌有效期为7天，过期后需重新登录</li>

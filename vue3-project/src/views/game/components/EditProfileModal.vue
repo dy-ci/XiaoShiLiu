@@ -29,9 +29,9 @@ newName.value = props.profile.player_name
 selectedModel.value = props.profile.skin_model || 'classic'
 
 const tabs = [
-  { key: 'info', label: '基本信息', icon: '📝' },
-  { key: 'password', label: '修改密码', icon: '🔒' },
-  { key: 'skin', label: '皮肤管理', icon: '🎨' }
+  { key: 'info', label: '基本信息' },
+  { key: 'password', label: '修改密码' },
+  { key: 'skin', label: '皮肤管理' }
 ]
 
 async function handleUpdateName() {
@@ -235,7 +235,7 @@ async function handleDeleteCape() {
   <div class="modal-overlay" @click.self="emit('close')">
     <div class="modal-container">
       <div class="modal-header">
-        <h2>✏️ 编辑角色 - {{ profile.player_name }}</h2>
+        <h2>编辑角色 - {{ profile.player_name }}</h2>
         <button class="close-btn" @click="emit('close')">✕</button>
       </div>
 
@@ -246,7 +246,7 @@ async function handleDeleteCape() {
           :class="['tab-btn', { active: activeTab === tab.key }]"
           @click="activeTab = tab.key"
         >
-          {{ tab.icon }} {{ tab.label }}
+          {{ tab.label }}
         </button>
       </div>
 
@@ -286,7 +286,7 @@ async function handleDeleteCape() {
         <div v-if="activeTab === 'password'" class="tab-content">
           <form @submit.prevent="handleUpdatePassword" class="edit-form">
             <div class="warning-box">
-              ⚠️ 修改密码后需要使用新密码重新登录MC客户端
+              修改密码后需要使用新密码重新登录MC客户端
             </div>
 
             <div class="form-group">
@@ -334,7 +334,7 @@ async function handleDeleteCape() {
         <!-- 皮肤管理 Tab -->
         <div v-if="activeTab === 'skin'" class="tab-content">
           <div class="skin-section">
-            <h3>🎨 皮肤设置</h3>
+            <h3>皮肤设置</h3>
             
             <div v-if="profile.skin_url" class="current-skin">
               <p class="section-label">当前皮肤：</p>
@@ -375,10 +375,10 @@ async function handleDeleteCape() {
                   id="skin-file"
                 />
                 <label for="skin-file" class="file-label">
-                  📁 选择皮肤文件（PNG格式，最大500KB）
+                  选择皮肤文件（PNG格式，最大500KB）
                 </label>
                 <p v-if="skinFile" class="file-selected">
-                  ✅ 已选择: {{ skinFile.name }} ({{ (skinFile.size / 1024).toFixed(1) }}KB)
+                  已选择: {{ skinFile.name }} ({{ (skinFile.size / 1024).toFixed(1) }}KB)
                 </p>
               </div>
 
@@ -393,10 +393,10 @@ async function handleDeleteCape() {
           </div>
 
           <div class="cape-section">
-            <h3>🧥 披风设置</h3>
+            <h3>披风设置</h3>
             
             <div v-if="profile.cape_url" class="current-cape">
-              <p class="section-label">当前披风：✅ 已设置</p>
+              <p class="section-label">当前披风：已设置</p>
               <button 
                 class="btn btn-danger btn-sm"
                 @click="handleDeleteCape"
@@ -416,10 +416,10 @@ async function handleDeleteCape() {
                   id="cape-file"
                 />
                 <label for="cape-file" class="file-label">
-                  📁 选择披风文件（PNG格式，最大500KB）
+                  选择披风文件（PNG格式，最大500KB）
                 </label>
                 <p v-if="capeFile" class="file-selected">
-                  ✅ 已选择: {{ capeFile.name }} ({{ (capeFile.size / 1024).toFixed(1) }}KB)
+                  已选择: {{ capeFile.name }} ({{ (capeFile.size / 1024).toFixed(1) }}KB)
                 </p>
               </div>
 

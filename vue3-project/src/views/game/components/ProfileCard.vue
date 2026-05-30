@@ -18,7 +18,20 @@ const emit = defineEmits(['update', 'delete'])
 const showEditModal = ref(false)
 const isDeleting = ref(false)
 
+// 获取代理 URL（解决 CORS 问题）
+function getProxyUrl(url) {
+  if (!url) return ''
+  try {
+    const urlObj = new URL(url)
+    if (urlObj.origin === window.location.origin) return url
+  } catch (e) {
+    return url
+  }
+  return `/api/game/skin-proxy?url=${encodeURIComponent(url)}`
+}
+
 const skinUrl = computed(() => props.profile.skin_url || `https://mc-heads.net/skin/${props.profile.uuid}`)
+const avatarSkinUrl = computed(() => getProxyUrl(skinUrl.value))
 const isBanned = computed(() => props.profile.is_banned === 1)
 
 async function handleDelete() {
@@ -59,7 +72,7 @@ function copyToClipboard(text) {
 <template>
   <div class="profile-card" :class="{ 'banned': isBanned }">
     <div class="card-header">
-      <div class="player-avatar" :style="{ backgroundImage: `url(${skinUrl})` }"></div>
+      <div class="player-avatar" :style="{ backgroundImage: `url(${avatarSkinUrl})` }"></div>
       
       <div class="player-info">
         <h3 class="player-name">{{ profile.player_name }}</h3>

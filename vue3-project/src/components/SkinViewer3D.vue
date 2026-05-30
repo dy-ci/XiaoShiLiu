@@ -78,13 +78,13 @@ function getProxyUrl(url) {
 
 // 动作列表
 const animations = [
-  { key: 'idle', label: '站立', icon: '🧍' },
-  { key: 'walk', label: '行走', icon: '🚶' },
-  { key: 'run', label: '奔跑', icon: '🏃' },
-  { key: 'fly', label: '飞行', icon: '🦅' },
-  { key: 'swim', label: '游泳', icon: '🏊' },
-  { key: 'wave', label: '挥手', icon: '👋' },
-  { key: 'crouch', label: '蹲下', icon: '🧎' }
+  { key: 'idle', label: '站立' },
+  { key: 'walk', label: '行走' },
+  { key: 'run', label: '奔跑' },
+  { key: 'fly', label: '飞行' },
+  { key: 'swim', label: '游泳' },
+  { key: 'wave', label: '挥手' },
+  { key: 'crouch', label: '蹲下' }
 ]
 
 function createAnimation(key) {
@@ -229,7 +229,6 @@ defineExpose({
         :title="anim.label"
         @click="switchAnimation(anim.key)"
       >
-        <span class="btn-icon">{{ anim.icon }}</span>
         <span class="btn-label">{{ anim.label }}</span>
       </button>
     </div>

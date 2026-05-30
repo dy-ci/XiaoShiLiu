@@ -85,7 +85,6 @@ onMounted(() => {
           class="btn btn-secondary" 
           @click="showApiConfig = !showApiConfig"
         >
-          <SvgIcon name="settings" class="btn-icon" />
           API 配置
         </button>
       </div>
