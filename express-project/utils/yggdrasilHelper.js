@@ -76,17 +76,13 @@ function signData(data) {
 
 /**
  * 获取公钥字符串（用于 API 元数据）
- * @returns {string|null} - 公钥字符串（去除 PEM 头尾标记），如果不存在则返回 null
+ * 规范要求返回完整 PEM 格式（含头尾标记）
+ * @returns {string|null} - 完整 PEM 格式公钥，如果不存在则返回 null
  */
 function getSignaturePublicKey() {
   const publicKey = loadPublicKey();
   if (!publicKey) return null;
-  
-  // 去除 PEM 头尾标记和换行符
-  return publicKey
-    .replace('-----BEGIN PUBLIC KEY-----', '')
-    .replace('-----END PUBLIC KEY-----', '')
-    .replace(/\s/g, '');
+  return publicKey;
 }
 
 const ACCESS_TOKEN_EXPIRES_IN = '7d';
