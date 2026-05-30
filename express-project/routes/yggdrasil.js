@@ -46,13 +46,14 @@ const {
 const serverIdCache = new Map();
 
 // 代理 URL 函数：将皮肤/披风 URL 转换为代理 URL
-function getProxyUrl(originalUrl) {
+function getProxyUrl(originalUrl, req) {
   if (!originalUrl) return originalUrl;
   // 如果已经是指定格式的代理URL，直接返回
   if (originalUrl.includes('/api/yggdrasil/textures/')) return originalUrl;
-  // 将原始URL转换为代理URL格式
+  // 将原始URL转换为代理URL格式（完整URL）
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
   const encodedUrl = encodeURIComponent(originalUrl);
-  return `/api/yggdrasil/textures/${encodedUrl}`;
+  return `${baseUrl}/api/yggdrasil/textures/${encodedUrl}`;
 }
 
 // 配置 multer 内存存储
@@ -452,7 +453,7 @@ router.get('/sessionserver/session/minecraft/hasJoined', async (req, res) => {
 
     if (profile.skin_url) {
       texturePayload.textures.SKIN = {
-        url: getProxyUrl(profile.skin_url),
+        url: getProxyUrl(profile.skin_url, req),
         metadata: {
           model: profile.skin_model || 'classic'
         }
@@ -461,7 +462,7 @@ router.get('/sessionserver/session/minecraft/hasJoined', async (req, res) => {
 
     if (profile.cape_url) {
       texturePayload.textures.CAPE = {
-        url: getProxyUrl(profile.cape_url)
+        url: getProxyUrl(profile.cape_url, req)
       };
     }
 
@@ -524,7 +525,7 @@ router.get('/sessionserver/session/minecraft/profile/:uuid', async (req, res) =>
 
     if (profile.skin_url) {
       texturePayload.textures.SKIN = {
-        url: getProxyUrl(profile.skin_url),
+        url: getProxyUrl(profile.skin_url, req),
         metadata: {
           model: profile.skin_model || 'classic'
         }
@@ -533,7 +534,7 @@ router.get('/sessionserver/session/minecraft/profile/:uuid', async (req, res) =>
 
     if (profile.cape_url) {
       texturePayload.textures.CAPE = {
-        url: getProxyUrl(profile.cape_url)
+        url: getProxyUrl(profile.cape_url, req)
       };
     }
 
