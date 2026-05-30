@@ -303,6 +303,29 @@ function buildErrorResponse(errorType, errorMessage) {
   };
 }
 
+async function recordExists(table, column, value) {
+  const [rows] = await pool.execute(
+    `SELECT 1 FROM \`${table}\` WHERE \`${column}\` = ? LIMIT 1`,
+    [value]
+  );
+  return rows.length > 0;
+}
+
+async function isUnique(table, column, value, excludeId = null) {
+  let sql = `SELECT 1 FROM \`${table}\` WHERE \`${column}\` = ?`;
+  const params = [value];
+
+  if (excludeId) {
+    sql += ' AND id != ?';
+    params.push(excludeId);
+  }
+
+  sql += ' LIMIT 1';
+
+  const [rows] = await pool.execute(sql, params);
+  return rows.length === 0;
+}
+
 module.exports = {
   generateAccessToken,
   generateRefreshToken,
@@ -329,5 +352,7 @@ module.exports = {
   invalidateToken,
   cleanupExpiredTokens,
   buildAuthResponse,
-  buildErrorResponse
+  buildErrorResponse,
+  recordExists,
+  isUnique
 };
