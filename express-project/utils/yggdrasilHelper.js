@@ -15,9 +15,13 @@ const { pool } = require('../config/config');
 
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 
-// RSA 签名密钥路径
-const PRIVATE_KEY_PATH = path.join(__dirname, '..', 'keys', 'yggdrasil-private.pem');
-const PUBLIC_KEY_PATH = path.join(__dirname, '..', 'keys', 'yggdrasil-public.pem');
+// RSA 签名密钥路径（优先从 .env 读取，兼容旧配置）
+const PRIVATE_KEY_PATH = process.env.YGGDRASIL_PRIVATE_KEY_PATH
+  ? path.resolve(process.env.YGGDRASIL_PRIVATE_KEY_PATH)
+  : path.join(__dirname, '..', 'keys', 'yggdrasil-private.pem');
+const PUBLIC_KEY_PATH = process.env.YGGDRASIL_PUBLIC_KEY_PATH
+  ? path.resolve(process.env.YGGDRASIL_PUBLIC_KEY_PATH)
+  : path.join(__dirname, '..', 'keys', 'yggdrasil-public.pem');
 
 // 缓存私钥和公钥
 let privateKeyCache = null;

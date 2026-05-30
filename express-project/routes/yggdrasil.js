@@ -77,12 +77,17 @@ router.get('/', (req, res) => {
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   
   // 获取签名公钥（从 keys/yggdrasil-public.pem 读取）
-  const signaturePublicKey = getSignaturePublicKey() || '';
+  const signaturePublicKey = getSignaturePublicKey();
 
   // 从 .env 读取额外的皮肤域名白名单（逗号分隔）
   const extraSkinDomains = process.env.SKIN_DOMAINS 
     ? process.env.SKIN_DOMAINS.split(',').map(d => d.trim()).filter(Boolean)
     : [];
+
+  // 构建皮肤域名白名单（去重）
+  const serverHost = new URL(baseUrl).hostname;
+  const defaultDomains = ['.minecraft.net', '.mojang.com'];
+  const allDomains = [...new Set([...defaultDomains, serverHost, ...extraSkinDomains])];
 
   res.json({
     meta: {
@@ -99,13 +104,8 @@ router.get('/', (req, res) => {
         username_check: true
       }
     },
-    skinDomains: [
-      '.minecraft.net',
-      '.mojang.com',
-      new URL(baseUrl).hostname,
-      ...extraSkinDomains
-    ],
-    signaturePublickey: signaturePublicKey
+    skinDomains: allDomains,
+    signaturePublickey: signaturePublicKey || ''
   });
 });
 
