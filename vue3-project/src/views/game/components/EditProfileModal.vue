@@ -514,12 +514,12 @@ async function handleDeleteCape() {
 }
 
 .tab-btn:hover {
-  background: rgba(102, 126, 234, 0.05);
-  color: #667eea;
+  background: var(--bg-color-tertiary);
+  color: var(--primary-color);
 }
 
 .tab-btn.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--primary-color);
   color: white;
 }
 
@@ -573,8 +573,8 @@ async function handleDeleteCape() {
 
 .form-group input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px var(--primary-color-shadow);
 }
 
 .form-group input:disabled {
@@ -702,9 +702,9 @@ async function handleDeleteCape() {
 }
 
 .file-label:hover {
-  border-color: #667eea;
-  color: #667eea;
-  background: rgba(102, 126, 234, 0.02);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  background: var(--bg-color-tertiary);
 }
 
 .file-selected {
@@ -730,13 +730,13 @@ async function handleDeleteCape() {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--primary-color);
   color: white;
 }
 
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 12px var(--primary-color-shadow);
 }
 
 .btn-primary:disabled {

@@ -138,13 +138,13 @@ function toggleFullConfig() {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+  background: var(--bg-color-secondary);
   cursor: pointer;
   transition: all 0.3s ease;
 }
 
 .config-header:hover {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+  background: var(--bg-color-tertiary);
 }
 
 .config-header h3 {
@@ -175,7 +175,7 @@ function toggleFullConfig() {
 }
 
 .toggle-btn:hover {
-  background: rgba(102, 126, 234, 0.1);
+  background: var(--bg-color-tertiary);
 }
 
 .config-body {
@@ -252,16 +252,16 @@ function toggleFullConfig() {
   flex: 1;
   font-family: 'Courier New', monospace;
   font-size: 13px;
-  color: #667eea;
+  color: var(--primary-color);
   word-break: break-all;
 }
 
 .copy-btn {
   padding: 6px 14px;
-  border: 1px solid #667eea;
+  border: 1px solid var(--primary-color);
   border-radius: 6px;
   background: transparent;
-  color: #667eea;
+  color: var(--primary-color);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -270,7 +270,7 @@ function toggleFullConfig() {
 }
 
 .copy-btn:hover {
-  background: #667eea;
+  background: var(--primary-color);
   color: white;
 }
 
@@ -307,7 +307,7 @@ function toggleFullConfig() {
   height: 32px;
   line-height: 32px;
   text-align: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--primary-color);
   color: white;
   border-radius: 50%;
   font-weight: 600;
@@ -361,7 +361,7 @@ function toggleFullConfig() {
   content: '•';
   position: absolute;
   left: 0;
-  color: #667eea;
+  color: var(--primary-color);
   font-weight: bold;
 }
 
