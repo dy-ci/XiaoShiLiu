@@ -80,9 +80,20 @@ const uploadLimiter = rateLimit({
 });
 
 // MC游戏功能速率限制器
+// 登录接口严格限流（防暴力破解）
+const yggdrasilAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: 'Too Many Requests', errorMessage: '登录请求过于频繁，请稍后重试' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false }
+});
+
+// 会话/查询等接口宽松限流（避免进服被限流）
 const yggdrasilLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30,
+  max: 2000,
   message: { error: 'Too Many Requests', errorMessage: '请求过于频繁，请稍后重试' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -142,6 +153,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/categories', categoriesRoutes);
 app.use('/api/files', filesRoutes);
 // MC游戏功能路由
+app.use('/api/yggdrasil/authserver/authenticate', yggdrasilAuthLimiter, yggdrasilRoutes);
 app.use('/api/yggdrasil', yggdrasilLimiter, yggdrasilRoutes);
 app.use('/api/game', gameLimiter, gameRoutes);
 
