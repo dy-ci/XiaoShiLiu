@@ -49,11 +49,11 @@ const serverIdCache = new Map();
 function getProxyUrl(originalUrl, req) {
   if (!originalUrl) return originalUrl;
   // 如果已经是指定格式的代理URL，直接返回
-  if (originalUrl.includes('/api/yggdrasil/textures/')) return originalUrl;
-  // 将原始URL转换为代理URL格式（完整URL）
+  if (originalUrl.includes('/api/yggdrasil/textures')) return originalUrl;
+  // 将原始URL转换为代理URL格式（完整URL，使用查询参数）
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   const encodedUrl = encodeURIComponent(originalUrl);
-  return `${baseUrl}/api/yggdrasil/textures/${encodedUrl}`;
+  return `${baseUrl}/api/yggdrasil/textures?url=${encodedUrl}`;
 }
 
 // 配置 multer 内存存储
@@ -906,11 +906,11 @@ router.use((error, req, res, next) => {
 
 // ========== 材质代理接口 ==========
 // 将皮肤/披风 URL 代理到当前服务器域名，解决跨域和白名单问题
-router.get('/textures/:encodedUrl', async (req, res) => {
+router.get('/textures', async (req, res) => {
   try {
-    const encodedUrl = req.params.encodedUrl;
+    const encodedUrl = req.query.url;
     if (!encodedUrl) {
-      return res.status(400).send('Missing URL');
+      return res.status(400).send('Missing URL parameter');
     }
 
     // 解码原始 URL
@@ -921,7 +921,10 @@ router.get('/textures/:encodedUrl', async (req, res) => {
     const response = await axios.get(originalUrl, {
       responseType: 'arraybuffer',
       timeout: 10000,
-      maxContentLength: 2 * 1024 * 1024 // 限制 2MB
+      maxContentLength: 2 * 1024 * 1024, // 限制 2MB
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
     });
 
     // 设置 CORS 头
