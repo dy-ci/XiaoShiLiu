@@ -431,8 +431,10 @@ async function uploadToS3(fileBuffer, filename, mimetype, type = 'image') {
       },
     };
 
-    // MinIO 等需要 pathStyle
-    if (s3Config.pathStyle) {
+    // 路径风格：MinIO、Cloudflare R2 等需要
+    // 如果显式设置 pathStyle=true，或者 endpoint 不是 AWS 标准格式，则启用路径风格
+    const isAwsEndpoint = s3Config.endpoint.includes('.amazonaws.com');
+    if (s3Config.pathStyle || !isAwsEndpoint) {
       clientConfig.forcePathStyle = true;
     }
 
