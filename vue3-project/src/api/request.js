@@ -13,6 +13,7 @@ const request = axios.create({
 // 401错误处理状态锁 - 防止重复跳转
 let isHandling401 = false
 let redirectTimer = null
+let hasHandled401 = false // 标记是否已处理过401，防止页面刷新后重复处理
 
 // 重置401处理锁
 const reset401Lock = () => {
@@ -56,9 +57,24 @@ request.interceptors.response.use(
         case HTTP_STATUS.UNAUTHORIZED:
           console.log('检测到401错误')
           
+          // 如果已经处理过401，直接返回，避免无限循环
+          if (hasHandled401) {
+            console.log('401已处理过，跳过')
+            errorMessage = ERROR_MESSAGES.SESSION_EXPIRED
+            break
+          }
+          
           // 防止重复跳转导致的循环
           if (!isHandling401) {
             isHandling401 = true
+            hasHandled401 = true // 标记已处理
+            
+            // 【关键修复】立即清除本地存储的用户信息，防止页面重新加载后再次触发认证请求
+            localStorage.removeItem('userInfo')
+            localStorage.removeItem('token')
+            localStorage.removeItem('refresh_token')
+            localStorage.removeItem('user_token')
+            localStorage.removeItem('user_refresh_token')
             
             // 判断是管理员还是普通用户页面
             const isAdminPage = window.location.pathname.startsWith('/admin')
@@ -72,10 +88,15 @@ request.interceptors.response.use(
                   window.location.href = '/admin/login'
                 }
               } else {
-                // 普通用户页面 - 跳转到首页
+                // 普通用户页面 - 直接跳转到首页，不刷新
+                // 因为localStorage已清除，页面会显示未登录状态
                 console.log('401: 跳转到首页')
                 window.location.href = '/'
               }
+              // 3秒后重置hasHandled401，允许用户重新登录
+              setTimeout(() => {
+                hasHandled401 = false
+              }, 3000)
             }, 100) // 100ms延迟
             
             reset401Lock()
