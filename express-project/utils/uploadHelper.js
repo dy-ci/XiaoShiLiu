@@ -405,6 +405,78 @@ async function uploadVideoToR2(fileBuffer, filename, mimetype) {
 }
 
 /**
+ * 上传文件到通用 S3 兼容存储（阿里云OSS、腾讯云COS、MinIO等）
+ * @param {Buffer} fileBuffer - 文件缓冲区
+ * @param {string} filename - 文件名
+ * @param {string} mimetype - 文件MIME类型
+ * @param {string} type - 文件类型 'image' 或 'video'
+ * @returns {Promise<{success: boolean, url?: string, message?: string}>}
+ */
+async function uploadToS3(fileBuffer, filename, mimetype, type = 'image') {
+  try {
+    const s3Config = config.upload[type].s3;
+
+    // 验证必要的配置
+    if (!s3Config.accessKeyId || !s3Config.secretAccessKey || !s3Config.bucketName || !s3Config.endpoint) {
+      throw new Error('S3 配置不完整');
+    }
+
+    // 创建 S3 客户端
+    const clientConfig = {
+      region: s3Config.region,
+      endpoint: s3Config.endpoint,
+      credentials: {
+        accessKeyId: s3Config.accessKeyId,
+        secretAccessKey: s3Config.secretAccessKey,
+      },
+    };
+
+    // MinIO 等需要 pathStyle
+    if (s3Config.pathStyle) {
+      clientConfig.forcePathStyle = true;
+    }
+
+    const s3Client = new S3Client(clientConfig);
+
+    // 生成唯一文件名
+    const hash = crypto.createHash('md5').update(fileBuffer).digest('hex');
+    const prefix = s3Config.prefix || `${type}s/`;
+    const uniqueKey = `${prefix}${Date.now()}_${hash}${path.extname(filename) || '.png'}`;
+
+    // 上传参数
+    const uploadParams = {
+      Bucket: s3Config.bucketName,
+      Key: uniqueKey,
+      Body: fileBuffer,
+      ContentType: mimetype,
+    };
+
+    // 执行上传
+    const command = new PutObjectCommand(uploadParams);
+    await s3Client.send(command);
+
+    // 构建访问URL
+    let fileUrl;
+    if (s3Config.publicUrl) {
+      fileUrl = `${s3Config.publicUrl}/${uniqueKey}`;
+    } else {
+      fileUrl = `${s3Config.endpoint}/${s3Config.bucketName}/${uniqueKey}`;
+    }
+
+    return {
+      success: true,
+      url: fileUrl
+    };
+  } catch (error) {
+    console.error(`S3 ${type}上传失败:`, error.message);
+    return {
+      success: false,
+      message: error.message || `S3 ${type}上传失败`
+    };
+  }
+}
+
+/**
  * 从文件路径上传到图床
  * @param {string} filePath - 文件路径
  * @param {string} originalname - 原始文件名
@@ -490,6 +562,8 @@ async function uploadImage(fileBuffer, filename, mimetype) {
     return await uploadToImageHost(fileBuffer, filename, mimetype);
   } else if (strategy === 'r2') {
     return await uploadImageToR2(fileBuffer, filename, mimetype);
+  } else if (strategy === 's3') {
+    return await uploadToS3(fileBuffer, filename, mimetype, 'image');
   } else {
     return {
       success: false,
@@ -512,6 +586,8 @@ async function uploadVideo(fileBuffer, filename, mimetype) {
     return await saveVideoToLocal(fileBuffer, filename, mimetype);
   } else if (strategy === 'r2') {
     return await uploadVideoToR2(fileBuffer, filename, mimetype);
+  } else if (strategy === 's3') {
+    return await uploadToS3(fileBuffer, filename, mimetype, 'video');
   } else {
     return {
       success: false,
@@ -543,6 +619,7 @@ module.exports = {
   saveVideoToLocal,
   uploadImageToR2,
   uploadVideoToR2,
+  uploadToS3,
   uploadImage,
   uploadVideo,
   uploadFile,

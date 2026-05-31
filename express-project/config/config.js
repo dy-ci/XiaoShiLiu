@@ -85,7 +85,7 @@ const config = {
       maxSize: process.env.IMAGE_MAX_SIZE || '10mb',
       allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
       // 图片上传策略配置
-      strategy: process.env.IMAGE_UPLOAD_STRATEGY || 'imagehost', // 'local', 'imagehost' 或 'r2'
+      strategy: process.env.IMAGE_UPLOAD_STRATEGY || 'imagehost', // 'local', 'imagehost', 'r2' 或 's3'
       // 本地存储配置
       local: {
         uploadDir: process.env.IMAGE_LOCAL_UPLOAD_DIR || 'uploads/images',
@@ -96,7 +96,7 @@ const config = {
         apiUrl: process.env.IMAGEHOST_API_URL || 'https://api.xinyew.cn/api/360tc',
         timeout: parseInt(process.env.IMAGEHOST_TIMEOUT) || 60000
       },
-      // Cloudflare R2配置
+      // Cloudflare R2配置（S3兼容）
       r2: {
         accountId: process.env.R2_ACCOUNT_ID,
         accessKeyId: process.env.R2_ACCESS_KEY_ID,
@@ -105,20 +105,31 @@ const config = {
         endpoint: process.env.R2_ENDPOINT,
         publicUrl: process.env.R2_PUBLIC_URL, // 可选：自定义域名
         region: process.env.R2_REGION || 'auto'
+      },
+      // 通用 S3 兼容存储配置（阿里云OSS、腾讯云COS、MinIO等）
+      s3: {
+        accessKeyId: process.env.S3_ACCESS_KEY_ID,
+        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+        bucketName: process.env.S3_BUCKET_NAME,
+        endpoint: process.env.S3_ENDPOINT,         // 例如: https://oss-cn-hangzhou.aliyuncs.com
+        region: process.env.S3_REGION || 'us-east-1',
+        publicUrl: process.env.S3_PUBLIC_URL,     // 例如: https://bucket.oss-cn-hangzhou.aliyuncs.com
+        pathStyle: process.env.S3_PATH_STYLE === 'true',  // MinIO 需要设为 true
+        prefix: process.env.S3_IMAGE_PREFIX || 'images/'  // 文件前缀路径
       }
     },
     // 视频上传配置
     video: {
       maxSize: process.env.VIDEO_MAX_SIZE || '100mb',
       allowedTypes: ['video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm'],
-      // 视频上传策略配置（只支持本地和R2，不支持第三方图床）
-      strategy: process.env.VIDEO_UPLOAD_STRATEGY || 'local', // 'local' 或 'r2'
+      // 视频上传策略配置
+      strategy: process.env.VIDEO_UPLOAD_STRATEGY || 'local', // 'local', 'r2' 或 's3'
       // 本地存储配置
       local: {
         uploadDir: process.env.VIDEO_LOCAL_UPLOAD_DIR || 'uploads/videos',
         baseUrl: process.env.LOCAL_BASE_URL || 'http://localhost:3001'
       },
-      // Cloudflare R2配置
+      // Cloudflare R2配置（S3兼容）
       r2: {
         accountId: process.env.R2_ACCOUNT_ID,
         accessKeyId: process.env.R2_ACCESS_KEY_ID,
@@ -127,6 +138,17 @@ const config = {
         endpoint: process.env.R2_ENDPOINT,
         publicUrl: process.env.R2_PUBLIC_URL, // 可选：自定义域名
         region: process.env.R2_REGION || 'auto'
+      },
+      // 通用 S3 兼容存储配置
+      s3: {
+        accessKeyId: process.env.S3_ACCESS_KEY_ID,
+        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+        bucketName: process.env.S3_BUCKET_NAME,
+        endpoint: process.env.S3_ENDPOINT,
+        region: process.env.S3_REGION || 'us-east-1',
+        publicUrl: process.env.S3_PUBLIC_URL,
+        pathStyle: process.env.S3_PATH_STYLE === 'true',
+        prefix: process.env.S3_VIDEO_PREFIX || 'videos/'
       }
     }
   },
