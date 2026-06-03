@@ -4,7 +4,7 @@
  * 供前端Web页面调用（需要社区JWT认证）
  * 
  * @author zhaishis
- * @version v1.0.0
+ * @version v1.1.0
  */
 
 const express = require('express');
@@ -51,8 +51,49 @@ const upload = multer({
   }
 });
 
+/**
+ * 安全获取 .returning() 的结果 ID
+ * 兼容 PostgreSQL（返回 [{id: x}]）和 SQLite（返回 [x]）的不同格式
+ */
+function extractReturningId(returningResult) {
+  if (returningResult == null) return null;
+  
+  if (Array.isArray(returningResult)) {
+    if (returningResult.length === 0) return null;
+    const first = returningResult[0];
+    // PostgreSQL: [{id: 1}] => first 是对象
+    if (first && typeof first === 'object') {
+      return first.id != null ? first.id : null;
+    }
+    // SQLite: [1] => first 是数字
+    return first != null ? Number(first) : null;
+  }
+  
+  if (typeof returningResult === 'object') {
+    return returningResult.id != null ? returningResult.id : null;
+  }
+  
+  // 直接返回数字
+  return Number(returningResult) || null;
+}
+
+/**
+ * 安全比较用户 ID（兼容字符串和数字类型）
+ * PostgreSQL 的 BIGINT 在 JS 中可能返回字符串
+ */
+function matchUserId(profileUserId, reqUserId) {
+  return String(profileUserId) === String(reqUserId);
+}
+
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '用户认证信息无效，请重新登录'
+      });
+    }
+
     const profiles = await getProfilesByUserId(req.user.id);
 
     res.json({
@@ -81,6 +122,13 @@ router.get('/profile', authenticateToken, async (req, res) => {
 
 router.post('/profile/create', authenticateToken, async (req, res) => {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '用户认证信息无效，请重新登录'
+      });
+    }
+
     const { player_name, password } = req.body;
 
     if (!player_name || !password) {
@@ -106,8 +154,10 @@ router.post('/profile/create', authenticateToken, async (req, res) => {
     }
 
     const db = getDB();
+    const userId = Number(req.user.id);
+
     const [countResult] = await db('mc_profiles')
-      .where({ user_id: req.user.id, is_deleted: false })
+      .where({ user_id: userId, is_deleted: 0 })
       .count('* as count');
 
     if (parseInt(countResult.count) >= MAX_PROFILES_PER_USER) {
@@ -128,24 +178,23 @@ router.post('/profile/create', authenticateToken, async (req, res) => {
     const uuid = generateUuidV4();
     const passwordHash = await hashPassword(password);
 
-    const userId = Number(req.user.id);
-    console.log(`[Game] 创建角色 - userId: ${userId}, type: ${typeof userId}, playerName: ${player_name}`);
+    console.log(`[Game] 创建角色 - userId: ${userId}, playerName: ${player_name}`);
 
     // 验证用户是否存在
     const userCheck = await db('users')
       .where({ id: userId })
       .select('id');
 
-    if (userCheck.length === 0) {
+    if (!userCheck || userCheck.length === 0) {
       return res.status(HTTP_STATUS.BAD_REQUEST).json({
         code: RESPONSE_CODES.VALIDATION_ERROR,
         message: '当前用户不存在，请重新登录'
       });
     }
 
-    // 使用 .returning('id') 获取自增ID（PostgreSQL兼容）
-    // .returning() 返回 [{id: xxx}]，解构 [result] 后 result 即为 {id: xxx}
-    const [result] = await db('mc_profiles')
+    // 使用 .returning('id') 获取自增ID
+    // PostgreSQL 返回 [{id: xxx}]，SQLite 可能返回 [xxx]
+    const insertResult = await db('mc_profiles')
       .insert({
         user_id: userId,
         player_name: player_name.trim(),
@@ -154,7 +203,7 @@ router.post('/profile/create', authenticateToken, async (req, res) => {
       })
       .returning('id');
 
-    const profileId = result?.id;
+    const profileId = extractReturningId(insertResult);
     if (!profileId) {
       throw new Error('创建角色失败：无法获取角色ID');
     }
@@ -164,7 +213,7 @@ router.post('/profile/create', authenticateToken, async (req, res) => {
       uuid
     });
 
-    console.log(`[Game] 用户 ${userId} 创建角色成功: ${player_name}`);
+    console.log(`[Game] 用户 ${userId} 创建角色成功: ${player_name} (profileId: ${profileId})`);
 
     res.status(HTTP_STATUS.CREATED).json({
       code: RESPONSE_CODES.SUCCESS,
@@ -187,6 +236,13 @@ router.post('/profile/create', authenticateToken, async (req, res) => {
 
 router.put('/profile/:id/name', authenticateToken, async (req, res) => {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '用户认证信息无效，请重新登录'
+      });
+    }
+
     const profileId = parseInt(req.params.id);
     const { new_name } = req.body;
 
@@ -206,7 +262,7 @@ router.put('/profile/:id/name', authenticateToken, async (req, res) => {
 
     const profile = await getProfileById(profileId);
 
-    if (!profile || profile.user_id !== req.user.id) {
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         code: RESPONSE_CODES.FORBIDDEN,
         message: '无权操作此角色'
@@ -229,7 +285,6 @@ router.put('/profile/:id/name', authenticateToken, async (req, res) => {
       .update({ player_name: new_name.trim() });
 
     // 角色改名后，将该角色的所有 Token 标记为暂时失效
-    // 这样启动器会刷新令牌，获取到新的角色名称
     await markTokensAsTemporarilyInvalidated(profileId);
 
     await auditLog('NAME_CHANGE', req.user.id, profileId, req.ip, {
@@ -257,11 +312,18 @@ router.put('/profile/:id/name', authenticateToken, async (req, res) => {
 // ========== 删除角色（软删除） ==========
 router.delete('/profile/:id', authenticateToken, async (req, res) => {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '用户认证信息无效，请重新登录'
+      });
+    }
+
     const profileId = parseInt(req.params.id);
 
     const profile = await getProfileById(profileId);
 
-    if (!profile || profile.user_id !== req.user.id) {
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         code: RESPONSE_CODES.FORBIDDEN,
         message: '无权操作此角色'
@@ -278,7 +340,7 @@ router.delete('/profile/:id', authenticateToken, async (req, res) => {
     const db = getDB();
     await db('mc_profiles')
       .where({ id: profileId })
-      .update({ is_deleted: true, skin_url: null, cape_url: null });
+      .update({ is_deleted: 1, skin_url: null, cape_url: null });
 
     // 吊销该角色的所有令牌
     await invalidateAllTokens(profileId);
@@ -306,6 +368,13 @@ router.delete('/profile/:id', authenticateToken, async (req, res) => {
 
 router.put('/profile/:id/password', authenticateToken, async (req, res) => {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '用户认证信息无效，请重新登录'
+      });
+    }
+
     const profileId = parseInt(req.params.id);
     const { old_password, new_password } = req.body;
 
@@ -326,7 +395,7 @@ router.put('/profile/:id/password', authenticateToken, async (req, res) => {
 
     const profile = await getProfileById(profileId);
 
-    if (!profile || profile.user_id !== req.user.id) {
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         code: RESPONSE_CODES.FORBIDDEN,
         message: '无权操作此角色'
@@ -368,6 +437,13 @@ router.put('/profile/:id/password', authenticateToken, async (req, res) => {
 
 router.post('/profile/:id/skin', authenticateToken, upload.single('skin'), async (req, res) => {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '用户认证信息无效，请重新登录'
+      });
+    }
+
     const profileId = parseInt(req.params.id);
     const model = req.body.model || 'classic';
 
@@ -380,7 +456,7 @@ router.post('/profile/:id/skin', authenticateToken, upload.single('skin'), async
 
     const profile = await getProfileById(profileId);
 
-    if (!profile || profile.user_id !== req.user.id) {
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         code: RESPONSE_CODES.FORBIDDEN,
         message: '无权操作此角色'
@@ -475,11 +551,18 @@ router.post('/profile/:id/skin', authenticateToken, upload.single('skin'), async
 
 router.delete('/profile/:id/skin', authenticateToken, async (req, res) => {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '用户认证信息无效，请重新登录'
+      });
+    }
+
     const profileId = parseInt(req.params.id);
 
     const profile = await getProfileById(profileId);
 
-    if (!profile || profile.user_id !== req.user.id) {
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         code: RESPONSE_CODES.FORBIDDEN,
         message: '无权操作此角色'
@@ -511,11 +594,18 @@ router.delete('/profile/:id/skin', authenticateToken, async (req, res) => {
 
 router.post('/profile/:id/cape', authenticateToken, upload.single('cape'), async (req, res) => {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '用户认证信息无效，请重新登录'
+      });
+    }
+
     const profileId = parseInt(req.params.id);
 
     const profile = await getProfileById(profileId);
 
-    if (!profile || profile.user_id !== req.user.id) {
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         code: RESPONSE_CODES.FORBIDDEN,
         message: '无权操作此角色'
@@ -606,11 +696,18 @@ router.post('/profile/:id/cape', authenticateToken, upload.single('cape'), async
 
 router.delete('/profile/:id/cape', authenticateToken, async (req, res) => {
   try {
+    if (!req.user || !req.user.id) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '用户认证信息无效，请重新登录'
+      });
+    }
+
     const profileId = parseInt(req.params.id);
 
     const profile = await getProfileById(profileId);
 
-    if (!profile || profile.user_id !== req.user.id) {
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
       return res.status(HTTP_STATUS.FORBIDDEN).json({
         code: RESPONSE_CODES.FORBIDDEN,
         message: '无权操作此角色'

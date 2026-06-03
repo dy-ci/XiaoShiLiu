@@ -394,14 +394,23 @@ router.get('/:id', optionalAuth, async (req, res) => {
       post.collected = false;
     }
 
-    // 增加浏览量（使用原子操作避免竞态条件）
+    // 增加浏览量（使用Redis计数器，定时回写数据库）
     const skipViewCount = req.query.skipViewCount === 'true';
     if (!skipViewCount) {
-      await db('posts').where({ id: postId }).increment('view_count', 1);
-      // 使用数据库实际值而非内存中的旧值+1，避免高并发时不一致
-      const updatedPost = await db('posts').where({ id: postId }).select('view_count').first();
-      if (updatedPost) {
-        post.view_count = parseInt(updatedPost.view_count);
+      try {
+        const { incrCounter, getCounter } = require('../utils/redis');
+        const viewKey = `counter:view:${postId}`;
+        await incrCounter(viewKey, 1);
+        // Redis计数 + 数据库当前值 = 实际浏览量
+        const redisViews = await getCounter(viewKey);
+        post.view_count = parseInt(post.view_count || 0) + redisViews;
+      } catch (redisError) {
+        // Redis不可用时降级到数据库直接更新
+        await db('posts').where({ id: postId }).increment('view_count', 1);
+        const updatedPost = await db('posts').where({ id: postId }).select('view_count').first();
+        if (updatedPost) {
+          post.view_count = parseInt(updatedPost.view_count);
+        }
       }
     }
 

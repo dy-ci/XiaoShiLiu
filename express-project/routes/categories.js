@@ -2,19 +2,23 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../utils/db');
 const { success, error } = require('../utils/responseHelper');
+const { getCache, setCache, delCachePattern } = require('../utils/redis');
+
+const CACHE_KEY = 'categories:all';
+const CACHE_TTL = 1800; // 30分钟
 
 /**
  * @api {get} /api/categories 获取分类列表
  * @apiName GetCategories
  * @apiGroup Categories
  * @apiDescription 获取所有分类列表
- * 
+ *
  * @apiSuccess {Number} code 状态码
  * @apiSuccess {String} message 响应消息
  * @apiSuccess {Array} data 分类列表
  * @apiSuccess {Number} data.id 分类ID
  * @apiSuccess {String} data.name 分类名称
- * 
+ *
  * @apiSuccessExample {json} Success-Response:
  *     HTTP/1.1 200 OK
  *     {
@@ -34,8 +38,18 @@ const { success, error } = require('../utils/responseHelper');
  */
 router.get('/', async (req, res) => {
   try {
-    const db = getDB();
     const { sortField = 'id', sortOrder = 'asc', name, category_title } = req.query;
+
+    // 生成缓存键（考虑查询参数）
+    const cacheKey = `${CACHE_KEY}:${sortField}:${sortOrder}:${name || ''}:${category_title || ''}`;
+
+    // 尝试从缓存获取
+    const cached = await getCache(cacheKey);
+    if (cached) {
+      return success(res, cached, '获取成功（缓存）');
+    }
+
+    const db = getDB();
 
     const allowedSortFields = {
       'id': 'c.id',
@@ -73,10 +87,14 @@ router.get('/', async (req, res) => {
 
     const categories = await query;
 
+    // 写入缓存
+    await setCache(cacheKey, categories, CACHE_TTL);
+
     success(res, categories, '获取成功');
   } catch (err) {
     console.error('获取分类列表失败:', err);
     error(res, '获取分类列表失败');
   }
 });
+
 module.exports = router;

@@ -22,6 +22,10 @@ const { startAutoUnbanService } = require('./utils/autoUnban');
 const { cleanupExpiredTokens } = require('./utils/yggdrasilHelper');
 // 导入数据库迁移功能
 const { checkAndMigrateAdminTable } = require('./utils/dbMigration');
+// 导入 Redis 连接功能
+const { connectRedis, disconnectRedis } = require('./utils/redis');
+// 导入浏览量回写服务
+const { startViewCountFlushService } = require('./utils/viewCountFlush');
 
 // 启动前检查配置
 console.log('执行启动前配置检查...');
@@ -172,12 +176,19 @@ app.use('*', (req, res) => {
 
 // 启动自动解封服务
 startAutoUnbanService();
+// 启动浏览量回写服务（Redis计数器定时回写数据库）
+startViewCountFlushService();
 
 // 启动服务器
 const PORT = config.server.port;
 app.listen(PORT, async () => {
   console.log(`● 服务器运行在端口 ${PORT}`);
   console.log(`● 环境: ${config.server.env}`);
+  console.log('========================================');
+
+  // 连接 Redis
+  await connectRedis();
+
   console.log('========================================');
   console.log('[Yggdrasil] 🎮 Minecraft 认证服务已启动');
   console.log('========================================');
@@ -194,7 +205,7 @@ app.listen(PORT, async () => {
   console.log('[Yggdrasil] 🔗 authlib-injector 配置:');
   console.log(`[Yggdrasil]    Base URL: http://localhost:${PORT}/api/yggdrasil`);
   console.log('========================================');
-  
+
   // 自动检查并迁移数据库
   await checkAndMigrateAdminTable();
 

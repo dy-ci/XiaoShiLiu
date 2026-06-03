@@ -19,6 +19,21 @@ services:
       timeout: 20s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: xsl-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - xsl-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 10s
+      retries: 5
+
   backend:
     build:
       context: ./express-project
@@ -42,10 +57,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     command: ["npx","nodemon","app.js"]
 
 volumes:
   pg_data:
+  redis_data:
   backend_uploads:
 
 networks:

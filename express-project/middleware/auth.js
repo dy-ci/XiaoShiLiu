@@ -1,34 +1,31 @@
 const { verifyToken } = require('../utils/jwt');
 const config = require('../config/config');
 const { getDB } = require('../utils/db');
+const { getCache, setCache, delCache } = require('../utils/redis');
 const { HTTP_STATUS, RESPONSE_CODES } = require('../constants');
+
+// 会话缓存TTL（秒）- 与JWT过期时间一致
+const SESSION_CACHE_TTL = 7 * 24 * 60 * 60; // 7天
 
 /**
  * 从请求头或Cookie中提取token
- * @param {Object} req - Express请求对象
- * @returns {String|null} token
  */
 function extractTokenFromHeader(req) {
-  // 判断是否为管理员路径
   const isAdminPath = req.path && (req.path.startsWith('/admin') || req.path.startsWith('/api/admin'))
   
-  // 如果是管理员路径，优先检查管理员token
   if (isAdminPath && req.cookies && req.cookies.admin_token) {
     return req.cookies.admin_token;
   }
   
-  // 优先从Authorization头获取（兼容旧客户端）
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     return authHeader.substring(7);
   }
 
-  // 从Cookie中获取普通用户token（新的安全方式）
   if (req.cookies && req.cookies.token) {
     return req.cookies.token;
   }
 
-  // 管理员token（从Cookie）- 备用检查
   if (req.cookies && req.cookies.admin_token) {
     return req.cookies.admin_token;
   }
@@ -37,7 +34,8 @@ function extractTokenFromHeader(req) {
 }
 
 /**
- * 认证中间件 - 验证JWT token
+ * 认证中间件 - 验证JWT token（带Redis会话缓存）
+ * Redis缓存命中时跳过数据库查询，大幅降低DB压力
  */
 async function authenticateToken(req, res, next) {
   try {
@@ -64,7 +62,17 @@ async function authenticateToken(req, res, next) {
 
     // 检查是否为管理员token
     if (decoded && (decoded.type === 'admin' || decoded.adminId)) {
-      // 管理员token验证 - 需要获取is_super和permissions字段！
+      // 尝试从Redis缓存获取管理员会话
+      const cacheKey = `session:admin:${token}`;
+      const cached = await getCache(cacheKey);
+      
+      if (cached) {
+        req.user = cached;
+        req.token = token;
+        return next();
+      }
+
+      // 缓存未命中，查询数据库
       const adminRows = await db('admin')
         .where({ id: decoded.adminId })
         .select('id', 'username', 'is_super', 'permissions');
@@ -76,7 +84,6 @@ async function authenticateToken(req, res, next) {
         });
       }
 
-      // 检查管理员会话是否有效
       const sessionRows = await db('admin_sessions')
         .where({
           admin_id: decoded.adminId,
@@ -93,7 +100,6 @@ async function authenticateToken(req, res, next) {
         });
       }
 
-      // 获取管理员权限
       const admin = adminRows[0];
       let adminPermissions = [];
       let isSuper = admin.is_super === 1;
@@ -107,14 +113,18 @@ async function authenticateToken(req, res, next) {
         }
       }
 
-      // 将管理员信息添加到请求对象
-      req.user = {
+      const userInfo = {
         ...admin,
         type: 'admin',
         adminId: decoded.adminId,
         adminPermissions,
         isSuper
       };
+
+      // 写入Redis缓存
+      await setCache(cacheKey, userInfo, SESSION_CACHE_TTL);
+
+      req.user = userInfo;
       req.token = token;
 
       return next();
@@ -127,7 +137,17 @@ async function authenticateToken(req, res, next) {
         });
       }
 
-      // 检查用户是否存在且活跃
+      // 尝试从Redis缓存获取用户会话
+      const cacheKey = `session:user:${token}`;
+      const cached = await getCache(cacheKey);
+      
+      if (cached) {
+        req.user = cached;
+        req.token = token;
+        return next();
+      }
+
+      // 缓存未命中，查询数据库
       const userRows = await db('users')
         .where({ id: decoded.userId, is_active: 1 })
         .select('id', 'user_id', 'nickname', 'avatar', 'is_active');
@@ -139,7 +159,6 @@ async function authenticateToken(req, res, next) {
         });
       }
 
-      // 检查会话是否有效
       const sessionRows = await db('user_sessions')
         .where({
           user_id: decoded.userId,
@@ -156,8 +175,12 @@ async function authenticateToken(req, res, next) {
         });
       }
 
-      // 将用户信息添加到请求对象
-      req.user = userRows[0];
+      const userInfo = userRows[0];
+
+      // 写入Redis缓存
+      await setCache(cacheKey, userInfo, SESSION_CACHE_TTL);
+
+      req.user = userInfo;
       req.token = token;
 
       return next();
@@ -172,12 +195,11 @@ async function authenticateToken(req, res, next) {
 }
 
 /**
- * 可选认证中间件 - 如果有token则验证，没有则跳过
+ * 可选认证中间件 - 如果有token则验证，没有则跳过（带Redis缓存）
  */
 async function optionalAuth(req, res, next) {
   try {
     const token = extractTokenFromHeader(req);
-    const db = getDB();
 
     if (!token) {
       req.user = null;
@@ -193,13 +215,23 @@ async function optionalAuth(req, res, next) {
       return next();
     }
 
-    // 检查用户是否存在且活跃
+    // 尝试从Redis缓存获取
+    const cacheKey = `session:user:${token}`;
+    const cached = await getCache(cacheKey);
+    
+    if (cached) {
+      req.user = cached;
+      req.token = token;
+      return next();
+    }
+
+    // 缓存未命中，查询数据库
+    const db = getDB();
     const userRows = await db('users')
       .where({ id: decoded.userId, is_active: 1 })
       .select('id', 'user_id', 'nickname', 'avatar', 'is_active');
 
     if (userRows.length > 0) {
-      // 检查会话是否有效
       const sessionRows = await db('user_sessions')
         .where({
           user_id: decoded.userId,
@@ -210,7 +242,10 @@ async function optionalAuth(req, res, next) {
         .select('id');
 
       if (sessionRows.length > 0) {
-        req.user = userRows[0];
+        const userInfo = userRows[0];
+        // 写入Redis缓存
+        await setCache(cacheKey, userInfo, SESSION_CACHE_TTL);
+        req.user = userInfo;
         req.token = token;
       } else {
         req.user = null;
@@ -221,7 +256,6 @@ async function optionalAuth(req, res, next) {
 
     next();
   } catch (error) {
-    // 如果token无效，设置user为null继续执行
     req.user = null;
     next();
   }

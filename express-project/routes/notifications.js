@@ -420,21 +420,48 @@ router.get('/unread-count-by-type', authenticateToken, async (req, res) => {
   }
 });
 
-// 获取未读通知数量
+// 获取未读通知数量（使用Redis计数器优化）
 router.get('/unread-count', authenticateToken, async (req, res) => {
   try {
     const db = getDB();
     const userId = req.user.id;
+
+    // 尝试从Redis获取缓存的未读数
+    try {
+      const { getCache, setCache, getCounter, incrCounter, decrCounter } = require('../utils/redis');
+      const cacheKey = `notify:unread:${userId}`;
+      const cached = await getCache(cacheKey);
+      
+      if (cached !== null && typeof cached === 'number') {
+        return res.json({
+          code: RESPONSE_CODES.SUCCESS,
+          message: 'success',
+          data: { count: cached }
+        });
+      }
+    } catch (e) {
+      // Redis不可用，降级到数据库查询
+    }
 
     const result = await db('notifications')
       .where({ user_id: userId, is_read: 0 })
       .count('* as count')
       .first();
 
+    const count = parseInt(result.count);
+
+    // 写入Redis缓存
+    try {
+      const { setCache } = require('../utils/redis');
+      await setCache(`notify:unread:${userId}`, count, 300); // 缓存5分钟
+    } catch (e) {
+      // 忽略Redis写入失败
+    }
+
     res.json({
       code: RESPONSE_CODES.SUCCESS,
       message: 'success',
-      data: { count: parseInt(result.count) }
+      data: { count }
     });
   } catch (error) {
     console.error('获取未读通知数量失败:', error);
