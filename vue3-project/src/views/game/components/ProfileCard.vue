@@ -62,6 +62,15 @@ function handleEditComplete(updatedData) {
   emit('update', updatedData)
 }
 
+function handleEquipped(skinItem) {
+  // 穿戴皮肤后刷新角色数据
+  emit('update', {
+    skin_url: skinItem.skin_url,
+    skin_model: skinItem.skin_model,
+    cape_url: skinItem.cape_url || null
+  })
+}
+
 function copyToClipboard(text) {
   navigator.clipboard.writeText(text).then(() => {
     messageManager.success('已复制到剪贴板')
@@ -159,7 +168,7 @@ function copyToClipboard(text) {
 
     <!-- 皮肤衣柜 -->
     <div v-if="showWardrobe" class="wardrobe-section">
-      <SkinWardrobe :profileId="profile.id" />
+      <SkinWardrobe :profileId="profile.id" :playerName="profile.player_name" @equipped="handleEquipped" />
     </div>
   </div>
 </template>

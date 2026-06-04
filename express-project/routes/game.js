@@ -1381,10 +1381,30 @@ router.post('/profile/:id/wardrobe/:itemId/equip', authenticateToken, async (req
 
     // 使用事务保证数据一致性
     await db.transaction(async (trx) => {
-      // 取消之前激活的皮肤
-      await trx('mc_skin_wardrobe')
-        .where({ profile_id: profileId, is_active: true })
-        .update({ is_active: false });
+      // 查找当前激活的皮肤
+      const currentActive = await trx('mc_skin_wardrobe')
+        .where({ profile_id: profileId, is_active: true, is_deleted: false })
+        .first();
+
+      // 如果当前有激活的皮肤，将其重命名为角色名（避免丢失）
+      if (currentActive && currentActive.id !== itemId) {
+        await trx('mc_skin_wardrobe')
+          .where({ id: currentActive.id })
+          .update({
+            name: profile.player_name,
+            is_active: false
+          });
+      } else if (currentActive) {
+        // 同一个皮肤重新穿戴，只需取消再激活
+        await trx('mc_skin_wardrobe')
+          .where({ id: currentActive.id })
+          .update({ is_active: false });
+      } else {
+        // 取消之前激活的皮肤（兜底）
+        await trx('mc_skin_wardrobe')
+          .where({ profile_id: profileId, is_active: true })
+          .update({ is_active: false });
+      }
 
       // 激活新的皮肤
       await trx('mc_skin_wardrobe')
