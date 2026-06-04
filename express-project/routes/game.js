@@ -96,19 +96,41 @@ router.get('/profile', authenticateToken, async (req, res) => {
 
     const profiles = await getProfilesByUserId(req.user.id);
 
+    // 计算每个角色的下次可修改时间
+    const oneMonthInMs = 30 * 24 * 60 * 60 * 1000;
+
     res.json({
       code: RESPONSE_CODES.SUCCESS,
-      data: profiles.map(p => ({
-        id: p.id,
-        player_name: p.player_name,
-        uuid: p.uuid,
-        skin_url: p.skin_url,
-        cape_url: p.cape_url,
-        skin_model: p.skin_model,
-        is_banned: p.is_banned,
-        created_at: p.created_at,
-        updated_at: p.updated_at
-      })),
+      data: profiles.map(p => {
+        // 计算下次可修改名字的时间
+        let nextAllowedChange = null;
+        let canChangeName = true;
+
+        if (p.last_name_change_at) {
+          const lastChangeTime = new Date(p.last_name_change_at).getTime();
+          const nextChangeTime = lastChangeTime + oneMonthInMs;
+
+          if (Date.now() < nextChangeTime) {
+            nextAllowedChange = new Date(nextChangeTime).toISOString();
+            canChangeName = false;
+          }
+        }
+
+        return {
+          id: p.id,
+          player_name: p.player_name,
+          uuid: p.uuid,
+          skin_url: p.skin_url,
+          cape_url: p.cape_url,
+          skin_model: p.skin_model,
+          is_banned: p.is_banned,
+          created_at: p.created_at,
+          updated_at: p.updated_at,
+          last_name_change_at: p.last_name_change_at,
+          next_allowed_name_change: nextAllowedChange,
+          can_change_name: canChangeName
+        };
+      }),
       message: '获取成功'
     });
   } catch (error) {
@@ -269,6 +291,26 @@ router.put('/profile/:id/name', authenticateToken, async (req, res) => {
       });
     }
 
+    // 检查名字修改频率限制（一个月只能修改一次）
+    if (profile.last_name_change_at) {
+      const lastChangeTime = new Date(profile.last_name_change_at).getTime();
+      const currentTime = Date.now();
+      const oneMonthInMs = 30 * 24 * 60 * 60 * 1000; // 30天的毫秒数
+
+      const timeDiff = currentTime - lastChangeTime;
+      if (timeDiff < oneMonthInMs) {
+        const daysRemaining = Math.ceil((oneMonthInMs - timeDiff) / (24 * 60 * 60 * 1000));
+        return res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json({
+          code: RESPONSE_CODES.VALIDATION_ERROR,
+          message: `修改过于频繁，请等待 ${daysRemaining} 天后再修改`,
+          data: {
+            next_allowed_date: new Date(lastChangeTime + oneMonthInMs).toISOString(),
+            days_remaining: daysRemaining
+          }
+        });
+      }
+    }
+
     const nameExists = await isUnique('mc_profiles', 'player_name', new_name.trim(), profileId);
     if (!nameExists) {
       return res.status(HTTP_STATUS.BAD_REQUEST).json({
@@ -280,9 +322,26 @@ router.put('/profile/:id/name', authenticateToken, async (req, res) => {
     const oldName = profile.player_name;
 
     const db = getDB();
-    await db('mc_profiles')
-      .where({ id: profileId })
-      .update({ player_name: new_name.trim() });
+
+    // 使用事务确保数据一致性
+    await db.transaction(async (trx) => {
+      // 更新角色名字和最后修改时间
+      await trx('mc_profiles')
+        .where({ id: profileId })
+        .update({
+          player_name: new_name.trim(),
+          last_name_change_at: new Date()
+        });
+
+      // 记录名字修改历史
+      await trx('mc_name_history').insert({
+        profile_id: profileId,
+        user_id: req.user.id,
+        old_name: oldName,
+        new_name: new_name.trim(),
+        ip_address: req.ip
+      });
+    });
 
     // 角色改名后，将该角色的所有 Token 标记为暂时失效
     await markTokensAsTemporarilyInvalidated(profileId);
@@ -305,6 +364,86 @@ router.put('/profile/:id/name', authenticateToken, async (req, res) => {
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
       code: RESPONSE_CODES.ERROR,
       message: '修改失败'
+    });
+  }
+});
+
+// ========== 查询名字修改历史 ==========
+router.get('/profile/:id/name-history', authenticateToken, async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: RESPONSE_CODES.UNAUTHORIZED,
+        message: '用户认证信息无效，请重新登录'
+      });
+    }
+
+    const profileId = parseInt(req.params.id);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    // 验证角色归属
+    const profile = await getProfileById(profileId);
+
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        code: RESPONSE_CODES.FORBIDDEN,
+        message: '无权查看此角色的信息'
+      });
+    }
+
+    const db = getDB();
+
+    // 查询名字修改历史
+    const historyRecords = await db('mc_name_history')
+      .where({ profile_id: profileId })
+      .select('id', 'old_name', 'new_name', 'ip_address', 'created_at')
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .offset(offset);
+
+    // 获取总数
+    const countResult = await db('mc_name_history')
+      .where({ profile_id: profileId })
+      .count('* as total')
+      .first();
+    const total = parseInt(countResult.total);
+
+    // 计算下次可修改时间
+    let nextAllowedChange = null;
+    if (profile.last_name_change_at) {
+      const lastChangeTime = new Date(profile.last_name_change_at).getTime();
+      const oneMonthInMs = 30 * 24 * 60 * 60 * 1000;
+      const nextChangeTime = lastChangeTime + oneMonthInMs;
+
+      if (Date.now() < nextChangeTime) {
+        nextAllowedChange = new Date(nextChangeTime).toISOString();
+      }
+    }
+
+    res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      data: {
+        history: historyRecords,
+        last_name_change_at: profile.last_name_change_at,
+        next_allowed_change: nextAllowedChange,
+        total_changes: total,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      },
+      message: '获取成功'
+    });
+
+  } catch (error) {
+    console.error('[Game] 获取名字修改历史失败:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      code: RESPONSE_CODES.ERROR,
+      message: '服务器内部错误'
     });
   }
 });

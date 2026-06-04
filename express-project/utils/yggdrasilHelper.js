@@ -265,7 +265,7 @@ async function getProfileByName(playerName) {
 
 async function getProfilesByUserId(userId) {
   const rows = await getDbInstance()('mc_profiles')
-    .select('id', 'player_name', 'uuid', 'skin_url', 'cape_url', 'skin_model', 'is_banned', 'created_at', 'updated_at')
+    .select('id', 'player_name', 'uuid', 'skin_url', 'cape_url', 'skin_model', 'is_banned', 'created_at', 'updated_at', 'last_name_change_at')
     .where({ user_id: userId, is_deleted: 0 })
     .orderBy('created_at', 'desc');
 
