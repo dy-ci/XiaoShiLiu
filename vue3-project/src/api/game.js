@@ -102,6 +102,67 @@ export const gameApi = {
       url: '/game/config',
       method: 'get'
     })
+  },
+
+  // ========== 衣柜相关 API ==========
+
+  // 获取衣柜列表
+  getWardrobe(profileId, params = {}) {
+    return request({
+      url: `/game/profile/${profileId}/wardrobe`,
+      method: 'get',
+      params: {
+        page: params.page || 1,
+        limit: params.limit || 20
+      }
+    })
+  },
+
+  // 添加皮肤到衣柜
+  addToWardrobe(profileId, formData) {
+    return request({
+      url: `/game/profile/${profileId}/wardrobe`,
+      method: 'post',
+      data: formData,
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      timeout: 60000
+    })
+  },
+
+  // 更新衣柜项（改名、换模型）
+  updateWardrobeItem(profileId, itemId, data) {
+    return request({
+      url: `/game/profile/${profileId}/wardrobe/${itemId}`,
+      method: 'put',
+      data
+    })
+  },
+
+  // 删除衣柜项
+  deleteWardrobeItem(profileId, itemId) {
+    return request({
+      url: `/game/profile/${profileId}/wardrobe/${itemId}`,
+      method: 'delete'
+    })
+  },
+
+  // 穿戴衣柜中的皮肤
+  equipWardrobeItem(profileId, itemId) {
+    return request({
+      url: `/game/profile/${profileId}/wardrobe/${itemId}/equip`,
+      method: 'post'
+    })
+  },
+
+  // 排序衣柜项
+  sortWardrobeItems(profileId, items) {
+    return request({
+      url: `/game/profile/${profileId}/wardrobe/sort`,
+      method: 'put',
+      data: { items }
+    })
   }
 }
 

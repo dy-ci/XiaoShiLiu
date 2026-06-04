@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { gameApi } from '@/api/game'
 import EditProfileModal from './EditProfileModal.vue'
+import SkinWardrobe from '@/components/SkinWardrobe.vue'
 import messageManager from '@/utils/messageManager'
 import SvgIcon from '@/components/SvgIcon.vue'
 import SkinViewer3D from '@/components/SkinViewer3D.vue'
@@ -16,6 +17,7 @@ const props = defineProps({
 const emit = defineEmits(['update', 'delete'])
 
 const showEditModal = ref(false)
+const showWardrobe = ref(false)
 const isDeleting = ref(false)
 
 // 获取代理 URL（解决 CORS 问题）
@@ -84,9 +86,18 @@ function copyToClipboard(text) {
       </div>
 
       <div class="card-actions">
-        <button 
+        <button
           v-if="!isBanned"
-          class="action-btn edit-btn" 
+          class="action-btn wardrobe-btn"
+          @click="showWardrobe = !showWardrobe"
+          title="皮肤衣柜"
+        >
+          <SvgIcon name="wardrobe" />
+        </button>
+
+        <button
+          v-if="!isBanned"
+          class="action-btn edit-btn"
           @click="showEditModal = true"
           title="编辑角色"
         >
@@ -145,6 +156,11 @@ function copyToClipboard(text) {
         @updated="handleEditComplete"
       />
     </Teleport>
+
+    <!-- 皮肤衣柜 -->
+    <div v-if="showWardrobe" class="wardrobe-section">
+      <SkinWardrobe :profileId="profile.id" />
+    </div>
   </div>
 </template>
 
@@ -263,6 +279,10 @@ function copyToClipboard(text) {
   color: var(--primary-color);
 }
 
+.wardrobe-btn:hover:not(:disabled) {
+  color: #667eea;
+}
+
 .delete-btn:hover:not(:disabled) {
   color: var(--primary-color);
 }
@@ -319,6 +339,37 @@ function copyToClipboard(text) {
 
 .cape-status {
   color: var(--primary-color);
+}
+
+/* 衣柜区域样式 */
+.wardrobe-section {
+  margin-top: 16px;
+  padding: 20px;
+  background: var(--bg-color-secondary);
+  border-top: 1px solid var(--border-color-secondary);
+  border-radius: 0 0 12px 12px;
+}
+
+.wardrobe-section :deep(.skin-wardrobe) {
+  padding: 0;
+}
+
+.wardrobe-section :deep(.wardrobe-header) {
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.wardrobe-section :deep(.wardrobe-grid) {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.wardrobe-section :deep(.wardrobe-item) {
+  border: 1px solid var(--border-color-secondary);
+}
+
+.wardrobe-section :deep(.skin-preview) {
+  height: 180px;
 }
 
 @media (max-width: 480px) {

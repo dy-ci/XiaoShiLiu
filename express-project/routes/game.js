@@ -33,7 +33,8 @@ const {
 } = require('../utils/yggdrasilHelper');
 const { getDB } = require('../utils/db');
 
-const MAX_PROFILES_PER_USER = parseInt(process.env.MAX_PROFILES_PER_USER) || 3;
+const MAX_PROFILES_PER_USER = parseInt(process.env.MAX_PROFILES_PER_USER) || 1;
+const MAX_WARDROBE_ITEMS = parseInt(process.env.MAX_WARDROBE_ITEMS) || 10;
 const SKIN_MAX_SIZE = 500 * 1024;
 
 const storage = multer.memoryStorage();
@@ -970,6 +971,515 @@ router.get('/skin-proxy', async (req, res) => {
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
       code: RESPONSE_CODES.ERROR,
       message: '图片获取失败'
+    });
+  }
+});
+
+// ========== 皮肤衣柜功能 ==========
+
+// 获取衣柜列表
+router.get('/profile/:id/wardrobe', authenticateToken, async (req, res) => {
+  try {
+    const profileId = parseInt(req.params.id);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const profile = await getProfileById(profileId);
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        code: RESPONSE_CODES.FORBIDDEN,
+        message: '无权查看此角色的信息'
+      });
+    }
+
+    const db = getDB();
+
+    const wardrobeItems = await db('mc_skin_wardrobe')
+      .where({ profile_id: profileId, is_deleted: false })
+      .select('id', 'name', 'skin_url', 'skin_model', 'cape_url', 'is_active', 'sort_order', 'created_at', 'updated_at')
+      .orderBy('is_active', 'desc')
+      .orderBy('sort_order', 'asc')
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .offset(offset);
+
+    const countResult = await db('mc_skin_wardrobe')
+      .where({ profile_id: profileId, is_deleted: false })
+      .count('* as total')
+      .first();
+    const total = parseInt(countResult.total);
+
+    res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      data: {
+        wardrobe: wardrobeItems,
+        total,
+        max_wardrobes: MAX_WARDROBE_ITEMS,
+        pagination: { page, limit, pages: Math.ceil(total / limit) }
+      },
+      message: '获取成功'
+    });
+
+  } catch (error) {
+    console.error('[Game] 获取衣柜失败:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      code: RESPONSE_CODES.ERROR,
+      message: '服务器内部错误'
+    });
+  }
+});
+
+// 添加皮肤到衣柜
+router.post('/profile/:id/wardrobe', authenticateToken, upload.fields([
+  { name: 'skin', maxCount: 1 },
+  { name: 'cape', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const profileId = parseInt(req.params.id);
+    const { name, model } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: '请输入这套皮肤的名称'
+      });
+    }
+
+    const profile = await getProfileById(profileId);
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        code: RESPONSE_CODES.FORBIDDEN,
+        message: '无权操作此角色'
+      });
+    }
+
+    if (!req.files?.skin || req.files.skin.length === 0) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: '请选择皮肤文件'
+      });
+    }
+
+    const skinFile = req.files.skin[0];
+    if (skinFile.mimetype !== 'image/png') {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: '只支持PNG格式的皮肤文件'
+      });
+    }
+
+    const skinModel = ['classic', 'slim'].includes(model) ? model : 'classic';
+    const db = getDB();
+
+    // 检查数量限制
+    const [currentCount] = await db('mc_skin_wardrobe')
+      .where({ profile_id: profileId, is_deleted: false })
+      .count('* as count');
+
+    if (parseInt(currentCount.count) >= MAX_WARDROBE_ITEMS) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: `衣柜已满，最多保存 ${MAX_WARDROBE_ITEMS} 套皮肤`
+      });
+    }
+
+    // 检查名称重复
+    const existingItem = await db('mc_skin_wardrobe')
+      .where({ profile_id: profileId, name: name.trim(), is_deleted: false })
+      .first();
+
+    if (existingItem) {
+      return res.status(HTTP_STATUS.CONFLICT).json({
+        code: RESPONSE_CODES.CONFLICT,
+        message: '该名称已存在，请使用其他名称'
+      });
+    }
+
+    // 处理皮肤
+    let processedSkinBuffer;
+    try {
+      processedSkinBuffer = await sharp(skinFile.buffer)
+        .png()
+        .toBuffer();
+    } catch (error) {
+      console.error('[Game] 皮肤处理失败:', error);
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: '皮肤文件处理失败'
+      });
+    }
+
+    const skinHash = createFileHash(processedSkinBuffer);
+    const skinUploadResult = await uploadImage(processedSkinBuffer, skinHash, 'image/png');
+
+    if (!skinUploadResult.success) {
+      return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+        code: RESPONSE_CODES.ERROR,
+        message: skinUploadResult.message || '皮肤上传失败'
+      });
+    }
+
+    // 处理披风（可选）
+    let capeUrl = null;
+    let capeHash = null;
+
+    if (req.files?.cape && req.files.cape.length > 0) {
+      const capeFile = req.files.cape[0];
+
+      if (capeFile.mimetype !== 'image/png') {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          code: RESPONSE_CODES.VALIDATION_ERROR,
+          message: '只支持PNG格式的披风文件'
+        });
+      }
+
+      let processedCapeBuffer;
+      try {
+        processedCapeBuffer = await sharp(capeFile.buffer)
+          .png()
+          .toBuffer();
+      } catch (error) {
+        console.error('[Game] 披风处理失败:', error);
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({
+          code: RESPONSE_CODES.VALIDATION_ERROR,
+          message: '披风文件处理失败'
+        });
+      }
+
+      capeHash = createFileHash(processedCapeBuffer);
+      const capeUploadResult = await uploadImage(processedCapeBuffer, capeHash, 'image/png');
+      if (capeUploadResult.success) {
+        capeUrl = capeUploadResult.url;
+      }
+    }
+
+    // 获取排序号
+    const [maxSortResult] = await db('mc_skin_wardrobe')
+      .where({ profile_id: profileId })
+      .max('sort_order as max_sort');
+    const nextSortOrder = (parseInt(maxSortResult.max_sort) || 0) + 1;
+
+    // 插入记录
+    const [newItemId] = await db('mc_skin_wardrobe').insert({
+      profile_id: profileId,
+      user_id: req.user.id,
+      name: name.trim(),
+      skin_url: skinUploadResult.url,
+      skin_hash: skinHash,
+      skin_model: skinModel,
+      cape_url: capeUrl,
+      cape_hash: capeHash,
+      sort_order: nextSortOrder,
+      is_active: false
+    }).returning('id');
+
+    await auditLog('WARDROBE_ADD', req.user.id, profileId, req.ip, {
+      item_id: newItemId,
+      name: name.trim(),
+      has_cape: !!capeUrl
+    });
+
+    console.log(`[Game] 用户 ${req.user.id} 添加皮肤到衣柜: ${name.trim()}`);
+
+    res.status(HTTP_STATUS.CREATED).json({
+      code: RESPONSE_CODES.SUCCESS,
+      data: {
+        id: newItemId,
+        name: name.trim(),
+        skin_url: skinUploadResult.url,
+        skin_model: skinModel,
+        cape_url: capeUrl,
+        is_active: false
+      },
+      message: '添加成功'
+    });
+
+  } catch (error) {
+    console.error('[Game] 添加衣柜失败:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      code: RESPONSE_CODES.ERROR,
+      message: '服务器内部错误'
+    });
+  }
+});
+
+// 更新衣柜项
+router.put('/profile/:id/wardrobe/:itemId', authenticateToken, async (req, res) => {
+  try {
+    const profileId = parseInt(req.params.id);
+    const itemId = parseInt(req.params.itemId);
+    const { name, model } = req.body;
+
+    const profile = await getProfileById(profileId);
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        code: RESPONSE_CODES.FORBIDDEN,
+        message: '无权操作此角色'
+      });
+    }
+
+    const db = getDB();
+
+    const wardrobeItem = await db('mc_skin_wardrobe')
+      .where({ id: itemId, profile_id: profileId, is_deleted: false })
+      .first();
+
+    if (!wardrobeItem) {
+      return res.status(HTTP_STATUS.NOT_FOUND).json({
+        code: RESPONSE_CODES.NOT_FOUND,
+        message: '衣柜项不存在'
+      });
+    }
+
+    const updateData = {};
+    let hasUpdate = false;
+
+    if (name && name.trim()) {
+      const duplicateCheck = await db('mc_skin_wardrobe')
+        .where({ profile_id: profileId, name: name.trim(), is_deleted: false })
+        .whereNot('id', itemId)
+        .first();
+
+      if (duplicateCheck) {
+        return res.status(HTTP_STATUS.CONFLICT).json({
+          code: RESPONSE_CODES.CONFLICT,
+          message: '该名称已存在'
+        });
+      }
+
+      updateData.name = name.trim();
+      hasUpdate = true;
+    }
+
+    if (model && ['classic', 'slim'].includes(model)) {
+      updateData.skin_model = model;
+      hasUpdate = true;
+    }
+
+    if (!hasUpdate) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: '没有需要更新的内容'
+      });
+    }
+
+    await db('mc_skin_wardrobe')
+      .where({ id: itemId })
+      .update(updateData);
+
+    // 如果是当前使用的皮肤且修改了模型，同步更新角色表
+    if (wardrobeItem.is_active && updateData.skin_model) {
+      await db('mc_profiles')
+        .where({ id: profileId })
+        .update({ skin_model: updateData.skin_model });
+    }
+
+    await auditLog('WARDROBE_UPDATE', req.user.id, profileId, req.ip, {
+      item_id: itemId,
+      changes: updateData
+    });
+
+    res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      data: { id: itemId, ...updateData },
+      message: '更新成功'
+    });
+
+  } catch (error) {
+    console.error('[Game] 更新衣柜失败:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      code: RESPONSE_CODES.ERROR,
+      message: '服务器内部错误'
+    });
+  }
+});
+
+// 删除衣柜项
+router.delete('/profile/:id/wardrobe/:itemId', authenticateToken, async (req, res) => {
+  try {
+    const profileId = parseInt(req.params.id);
+    const itemId = parseInt(req.params.itemId);
+
+    const profile = await getProfileById(profileId);
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        code: RESPONSE_CODES.FORBIDDEN,
+        message: '无权操作此角色'
+      });
+    }
+
+    const db = getDB();
+
+    const wardrobeItem = await db('mc_skin_wardrobe')
+      .where({ id: itemId, profile_id: profileId, is_deleted: false })
+      .first();
+
+    if (!wardrobeItem) {
+      return res.status(HTTP_STATUS.NOT_FOUND).json({
+        code: RESPONSE_CODES.NOT_FOUND,
+        message: '衣柜项不存在'
+      });
+    }
+
+    if (wardrobeItem.is_active) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: '不能删除当前使用的皮肤，请先切换到其他皮肤'
+      });
+    }
+
+    await db('mc_skin_wardrobe')
+      .where({ id: itemId })
+      .update({ is_deleted: true });
+
+    await auditLog('WARDROBE_DELETE', req.user.id, profileId, req.ip, {
+      item_id: itemId,
+      name: wardrobeItem.name
+    });
+
+    res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: '删除成功'
+    });
+
+  } catch (error) {
+    console.error('[Game] 删除衣柜失败:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      code: RESPONSE_CODES.ERROR,
+      message: '服务器内部错误'
+    });
+  }
+});
+
+// 穿戴衣柜中的皮肤
+router.post('/profile/:id/wardrobe/:itemId/equip', authenticateToken, async (req, res) => {
+  try {
+    const profileId = parseInt(req.params.id);
+    const itemId = parseInt(req.params.itemId);
+
+    const profile = await getProfileById(profileId);
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        code: RESPONSE_CODES.FORBIDDEN,
+        message: '无权操作此角色'
+      });
+    }
+
+    const db = getDB();
+
+    const newWardrobeItem = await db('mc_skin_wardrobe')
+      .where({ id: itemId, profile_id: profileId, is_deleted: false })
+      .first();
+
+    if (!newWardrobeItem) {
+      return res.status(HTTP_STATUS.NOT_FOUND).json({
+        code: RESPONSE_CODES.NOT_FOUND,
+        message: '衣柜项不存在'
+      });
+    }
+
+    // 使用事务保证数据一致性
+    await db.transaction(async (trx) => {
+      // 取消之前激活的皮肤
+      await trx('mc_skin_wardrobe')
+        .where({ profile_id: profileId, is_active: true })
+        .update({ is_active: false });
+
+      // 激活新的皮肤
+      await trx('mc_skin_wardrobe')
+        .where({ id: itemId })
+        .update({ is_active: true });
+
+      // 更新角色的当前皮肤信息
+      await trx('mc_profiles')
+        .where({ id: profileId })
+        .update({
+          skin_url: newWardrobeItem.skin_url,
+          skin_model: newWardrobeItem.skin_model,
+          cape_url: newWardrobeItem.cape_url,
+          updated_at: new Date()
+        });
+    });
+
+    // 标记Token失效
+    await markTokensAsTemporarilyInvalidated(profileId);
+
+    await auditLog('WARDROBE_EQUIP', req.user.id, profileId, req.ip, {
+      item_id: itemId,
+      name: newWardrobeItem.name,
+      old_skin_url: profile.skin_url,
+      new_skin_url: newWardrobeItem.skin_url
+    });
+
+    console.log(`[Game] 角色 ${profile.player_name} 切换皮肤: ${newWardrobeItem.name}`);
+
+    res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      data: {
+        old_skin_url: profile.skin_url,
+        new_skin_url: newWardrobeItem.skin_url,
+        new_cape_url: newWardrobeItem.cape_url,
+        skin_model: newWardrobeItem.skin_model,
+        wardrobe_name: newWardrobeItem.name
+      },
+      message: '切换成功，请使用新皮肤重新登录游戏'
+    });
+
+  } catch (error) {
+    console.error('[Game] 穿戴衣柜皮肤失败:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      code: RESPONSE_CODES.ERROR,
+      message: '服务器内部错误'
+    });
+  }
+});
+
+// 排序衣柜项
+router.put('/profile/:id/wardrobe/sort', authenticateToken, async (req, res) => {
+  try {
+    const profileId = parseInt(req.params.id);
+    const { items } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: '请提供排序数据'
+      });
+    }
+
+    const profile = await getProfileById(profileId);
+    if (!profile || !matchUserId(profile.user_id, req.user.id)) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        code: RESPONSE_CODES.FORBIDDEN,
+        message: '无权操作此角色'
+      });
+    }
+
+    const db = getDB();
+
+    await db.transaction(async (trx) => {
+      for (const item of items) {
+        await trx('mc_skin_wardrobe')
+          .where({
+            id: item.id,
+            profile_id: profileId,
+            is_deleted: false
+          })
+          .update({ sort_order: item.sort_order });
+      }
+    });
+
+    res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      message: '排序更新成功'
+    });
+
+  } catch (error) {
+    console.error('[Game] 排序更新失败:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      code: RESPONSE_CODES.ERROR,
+      message: '服务器内部错误'
     });
   }
 });
