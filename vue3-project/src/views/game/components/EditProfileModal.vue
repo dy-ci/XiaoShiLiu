@@ -411,7 +411,6 @@ async function handleDeleteCape() {
               <div class="file-input-wrapper">
                 <input 
                   type="file" 
-                  accept=".png,image/png"
                   @change="handleCapeChange"
                   id="cape-file"
                 />

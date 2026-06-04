@@ -85,7 +85,6 @@
                 <input
                   type="file"
                   id="wardrobe-skin-file"
-                  accept=".png,image/png"
                   @change="handleSkinUpload"
                 />
                 <label for="wardrobe-skin-file" class="file-label">
@@ -120,7 +119,6 @@
                 <input
                   type="file"
                   id="wardrobe-cape-file"
-                  accept=".png,image/png"
                   @change="handleCapeUpload"
                 />
                 <label for="wardrobe-cape-file" class="file-label small">
