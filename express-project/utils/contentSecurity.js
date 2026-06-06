@@ -119,11 +119,16 @@ const sanitizeContent = (content) => {
   const imgTags = []
   processedContent = processedContent.replace(/<img[^>]*src="([^"]*)"[^>]*>/gi, (match, src) => {
     // 检测危险属性和协议：发现危险内容时返回转义后的文本，不再保留原始HTML
-    if (/\son\w+\s*=/i.test(match) || /javascript\s*:/i.test(match)) {
+    // 扩展检测：on事件、javascript:协议、data:text/html等XSS向量
+    if (/\son\w+\s*=/i.test(match) || 
+        /javascript\s*:/i.test(match) || 
+        /data\s*:\s*text\/html/i.test(match) ||
+        /data\s*:\s*image\/svg\+xml/i.test(match)) {
       return escapeHtml(match)
     }
 
     // 验证URL是否安全：允许http/https绝对路径和/api/开头的相对路径
+    // 禁止data URI和blob URL等潜在危险的协议
     if (src && (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/api/'))) {
       const placeholder = `__IMG_TAG_${imgTags.length}__`
       const escapedSrc = src.replace(/"/g, '&quot;').replace(/'/g, '&#39;')

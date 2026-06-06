@@ -563,8 +563,8 @@ router.post('/:id/follow', authenticateToken, async (req, res) => {
     // 添加关注记录 + 更新计数（使用事务保证一致性）
     await db.transaction(async (trx) => {
       await trx('follows').insert({ follower_id: String(followerId), following_id: String(userId) });
-      await trx('users').where({ id: followerId }).increment('follow_count', 1);
-      await trx('users').where({ id: userId }).increment('fans_count', 1);
+      await trx('users').where({ id: followerId }).update({ follow_count: trx.raw('follow_count + 1') });
+      await trx('users').where({ id: userId }).update({ fans_count: trx.raw('fans_count + 1') });
     });
 
     // 创建关注通知
@@ -596,13 +596,13 @@ router.delete('/:id/follow', authenticateToken, async (req, res) => {
       return res.status(HTTP_STATUS.NOT_FOUND).json({ code: RESPONSE_CODES.NOT_FOUND, message: '用户不存在' });
     }
 
-    // 删除关注记录 + 更新计数（使用事务保证一致性）
+    // 删除关注记录 + 更新计数（使用事务保证一致性，防止计数器负数）
     await db.transaction(async (trx) => {
       await trx('follows')
         .where({ follower_id: String(followerId), following_id: String(userId) })
         .del();
-      await trx('users').where({ id: followerId }).decrement('follow_count', 1);
-      await trx('users').where({ id: userId }).decrement('fans_count', 1);
+      await trx('users').where({ id: followerId }).update({ follow_count: trx.raw('GREATEST(follow_count - 1, 0)') });
+      await trx('users').where({ id: userId }).update({ fans_count: trx.raw('GREATEST(fans_count - 1, 0)') });
     });
 
     // 删除相关的关注通知
@@ -706,10 +706,24 @@ router.get('/:id/following', optionalAuth, async (req, res) => {
       .limit(limit)
       .offset(offset);
 
-    // 为每个用户添加笔记数
-    for (let user of rows) {
-      const postCount = await db('posts').where({ user_id: user.id, status: 0 }).count('* as count').first();
-      user.post_count = parseInt(postCount.count);
+    // 批量获取笔记数（避免N+1查询）
+    if (rows.length > 0) {
+      const userIds = rows.map(u => u.id);
+      const postCounts = await db('posts')
+        .whereIn('user_id', userIds)
+        .andWhere('status', 0)
+        .select('user_id')
+        .count('* as count')
+        .groupBy('user_id');
+      
+      const postCountMap = {};
+      postCounts.forEach(pc => {
+        postCountMap[pc.user_id] = parseInt(pc.count);
+      });
+      
+      rows.forEach(user => {
+        user.post_count = postCountMap[user.id] || 0;
+      });
     }
 
     // 检查当前用户与这些用户的关注状态
@@ -783,10 +797,24 @@ router.get('/:id/followers', optionalAuth, async (req, res) => {
       .limit(limit)
       .offset(offset);
 
-    // 为每个用户添加笔记数
-    for (let user of rows) {
-      const postCount = await db('posts').where({ user_id: user.id, status: 0 }).count('* as count').first();
-      user.post_count = parseInt(postCount.count);
+    // 批量获取笔记数（避免N+1查询）
+    if (rows.length > 0) {
+      const userIds = rows.map(u => u.id);
+      const postCounts = await db('posts')
+        .whereIn('user_id', userIds)
+        .andWhere('status', 0)
+        .select('user_id')
+        .count('* as count')
+        .groupBy('user_id');
+      
+      const postCountMap = {};
+      postCounts.forEach(pc => {
+        postCountMap[pc.user_id] = parseInt(pc.count);
+      });
+      
+      rows.forEach(user => {
+        user.post_count = postCountMap[user.id] || 0;
+      });
     }
 
     // 检查当前用户与这些用户的关注状态
@@ -1015,15 +1043,56 @@ router.put('/:id', authenticateToken, async (req, res) => {
     // 构建更新数据
     const updateData = { nickname: sanitizeContent(nickname.trim()) };
 
+    // 验证字段长度，防止数据库溢出
+    if (updateData.nickname.length > 50) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '昵称长度不能超过50个字符' });
+    }
+
     if (avatar !== undefined) updateData.avatar = avatar || '';
-    if (bio !== undefined) updateData.bio = sanitizeContent(bio || '');
-    if (location !== undefined) updateData.location = location || '';
+    if (bio !== undefined) {
+      const sanitizedBio = sanitizeContent(bio || '');
+      if (sanitizedBio.length > 500) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '个人简介长度不能超过500个字符' });
+      }
+      updateData.bio = sanitizedBio;
+    }
+    if (location !== undefined) {
+      const locationStr = location || '';
+      if (locationStr.length > 100) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '位置长度不能超过100个字符' });
+      }
+      updateData.location = locationStr;
+    }
     if (gender !== undefined) updateData.gender = gender || null;
     if (zodiac_sign !== undefined) updateData.zodiac_sign = zodiac_sign || null;
-    if (mbti !== undefined) updateData.mbti = mbti || null;
-    if (education !== undefined) updateData.education = education || null;
-    if (major !== undefined) updateData.major = major || null;
-    if (interests !== undefined) updateData.interests = typeof interests === 'object' ? JSON.stringify(interests) : interests || null;
+    if (mbti !== undefined) {
+      const mbtiStr = mbti || '';
+      if (mbtiStr.length > 10) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: 'MBTI长度不能超过10个字符' });
+      }
+      updateData.mbti = mbtiStr;
+    }
+    if (education !== undefined) {
+      const educationStr = education || '';
+      if (educationStr.length > 100) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '教育背景长度不能超过100个字符' });
+      }
+      updateData.education = educationStr;
+    }
+    if (major !== undefined) {
+      const majorStr = major || '';
+      if (majorStr.length > 100) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '专业长度不能超过100个字符' });
+      }
+      updateData.major = majorStr;
+    }
+    if (interests !== undefined) {
+      const interestsStr = typeof interests === 'object' ? JSON.stringify(interests) : interests || '';
+      if (interestsStr.length > 500) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '兴趣标签长度不能超过500个字符' });
+      }
+      updateData.interests = interestsStr || null;
+    }
 
     await db('users').where({ id: targetUserId }).update(updateData);
 

@@ -60,6 +60,9 @@ const MAX_STORE_SIZE = 10000;
 const captchaStore = new Map();
 // 存储邮箱验证码的临时对象（最大容量限制，防止内存泄漏）
 const emailCodeStore = new Map();
+// 邮箱验证码发送频率限制（每个邮箱每5分钟最多发送1次）
+const EMAIL_CODE_RATE_LIMIT = 5 * 60 * 1000; // 5分钟
+const emailCodeRateLimit = new Map();
 
 /**
  * 清理过期条目并在超过容量时移除最旧的
@@ -194,11 +197,24 @@ router.post('/send-email-code', async (req, res) => {
       return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.CONFLICT, message: '该邮箱已被注册' });
     }
 
+    // 检查发送频率限制
+    const lastSent = emailCodeRateLimit.get(email);
+    if (lastSent && Date.now() - lastSent < EMAIL_CODE_RATE_LIMIT) {
+      const remainingSeconds = Math.ceil((EMAIL_CODE_RATE_LIMIT - (Date.now() - lastSent)) / 1000);
+      return res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json({
+        code: RESPONSE_CODES.TOO_MANY_REQUESTS,
+        message: `发送过于频繁，请${remainingSeconds}秒后再试`
+      });
+    }
+
     // 生成6位随机验证码
     const code = Math.floor(100000 + Math.random() * 900000).toString();
 
     // 发送验证码到邮箱
     await sendEmailCode(email, code);
+
+    // 记录发送时间（用于频率限制）
+    emailCodeRateLimit.set(email, Date.now());
 
     // 存储验证码（10分钟过期）
     const expires = Date.now() + 10 * 60 * 1000;
@@ -270,7 +286,7 @@ router.post('/bind-email', authenticateToken, async (req, res) => {
     // 更新用户邮箱
     await db('users').where({ id: userId.toString() }).update({ email: email });
 
-    console.log(`用户绑定邮箱成功 - 用户ID: ${userId}, 邮箱: ${email}`);
+    console.log(`用户绑定邮箱成功 - 用户ID: ${userId}`);
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,
@@ -423,7 +439,7 @@ router.post('/reset-password', async (req, res) => {
     // 删除已使用的验证码
     emailCodeStore.delete(`reset_${email}`);
 
-    console.log(`用户重置密码成功 - 邮箱: ${email}`);
+    console.log(`用户重置密码成功`);
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,
@@ -462,7 +478,7 @@ router.delete('/unbind-email', authenticateToken, async (req, res) => {
     // 解除邮箱绑定（将email设为空字符串）
     await db('users').where({ id: userId.toString() }).update({ email: '' });
 
-    console.log(`用户解除邮箱绑定成功 - 用户ID: ${userId}, 原邮箱: ${currentEmail}`);
+    console.log(`用户解除邮箱绑定成功 - 用户ID: ${userId}`);
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,
@@ -569,6 +585,7 @@ router.post('/register', async (req, res) => {
       ipLocation = await getIPLocation(userIP);
     } catch (error) {
       ipLocation = '未知';
+      console.error('IP属地查询失败:', error.message);
     }
     // 获取用户User-Agent
     const userAgent = req.headers['user-agent'] || '';
@@ -1034,10 +1051,12 @@ router.get('/admin/admins', authenticateToken, async (req, res) => {
       dataQuery = dataQuery.where('username', 'like', `%${req.query.username}%`);
     }
     
-    const sortField = allowedSortFields.includes(req.query.sortField) ? req.query.sortField : 'created_at';
-    const sortOrder = req.query.sortOrder && req.query.sortOrder.toUpperCase() === 'ASC' ? 'asc' : 'desc';
+    // 严格验证排序字段，防止SQL注入
+    const validSortField = allowedSortFields.includes(req.query.sortField) ? req.query.sortField : 'created_at';
+    // 严格验证排序方向，只允许 asc 或 desc
+    const validSortOrder = req.query.sortOrder && req.query.sortOrder.toLowerCase() === 'asc' ? 'asc' : 'desc';
     
-    const adminRows = await dataQuery.orderBy(sortField, sortOrder).limit(limit).offset(offset);
+    const adminRows = await dataQuery.orderBy(validSortField, validSortOrder).limit(limit).offset(offset);
     
     // 处理权限字段
     const processedRows = adminRows.map(admin => {

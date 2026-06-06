@@ -7,6 +7,41 @@ const config = require('../config/config');
 const crypto = require('crypto');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 
+// 文件类型魔数（Magic Numbers）验证
+const FILE_SIGNATURES = {
+  // 图片格式
+  'image/jpeg': ['FFD8FF'],
+  'image/png': ['89504E47'],
+  'image/gif': ['47494638'],
+  'image/webp': ['52494646'],
+  // 视频格式
+  'video/mp4': ['6674797069736F6D', '667479706D703431', '0000001866747970'],
+  'video/avi': ['52494646'],
+  'video/webm': ['1A45DFA3']
+};
+
+/**
+ * 验证文件缓冲区是否符合声明的MIME类型
+ * @param {Buffer} fileBuffer - 文件缓冲区
+ * @param {string} mimetype - 声明的MIME类型
+ * @returns {boolean} - 是否有效
+ */
+function validateFileSignature(fileBuffer, mimetype) {
+  if (!fileBuffer || fileBuffer.length < 4) {
+    return false;
+  }
+  
+  const signatures = FILE_SIGNATURES[mimetype];
+  if (!signatures) {
+    // 未知类型，跳过验证
+    return true;
+  }
+  
+  const fileHeader = fileBuffer.slice(0, 8).toString('hex').toUpperCase();
+  
+  return signatures.some(sig => fileHeader.startsWith(sig));
+}
+
 /**
  * 保存图片文件到本地
  * @param {Buffer} fileBuffer - 文件缓冲区
@@ -16,6 +51,15 @@ const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
  */
 async function saveImageToLocal(fileBuffer, filename, mimetype) {
   try {
+    // 验证文件魔数，防止伪造MIME类型
+    if (!validateFileSignature(fileBuffer, mimetype)) {
+      console.error('图片文件签名验证失败:', mimetype);
+      return {
+        success: false,
+        message: '文件类型验证失败，请上传有效的图片文件'
+      };
+    }
+
     // 确保上传目录存在
     const uploadDir = path.join(process.cwd(), config.upload.image.local.uploadDir);
     if (!fs.existsSync(uploadDir)) {
@@ -74,6 +118,15 @@ async function saveImageToLocal(fileBuffer, filename, mimetype) {
  */
 async function saveVideoToLocal(fileBuffer, filename, mimetype) {
   try {
+    // 验证文件魔数，防止伪造MIME类型
+    if (!validateFileSignature(fileBuffer, mimetype)) {
+      console.error('视频文件签名验证失败:', mimetype);
+      return {
+        success: false,
+        message: '文件类型验证失败，请上传有效的视频文件'
+      };
+    }
+
     // 确保上传目录存在
     const uploadDir = path.join(process.cwd(), config.upload.video.local.uploadDir);
     if (!fs.existsSync(uploadDir)) {

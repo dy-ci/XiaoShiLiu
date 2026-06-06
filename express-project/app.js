@@ -131,13 +131,43 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // 健康检查路由
-app.get('/api/health', (req, res) => {
-  res.status(HTTP_STATUS.OK).json({
+app.get('/api/health', async (req, res) => {
+  const healthStatus = {
     code: RESPONSE_CODES.SUCCESS,
     message: 'OK',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
+    uptime: process.uptime(),
+    services: {}
+  };
+
+  // 检查数据库连接
+  try {
+    const { getDB } = require('./utils/db');
+    const db = getDB();
+    await db.raw('SELECT 1');
+    healthStatus.services.database = 'connected';
+  } catch (error) {
+    healthStatus.services.database = 'disconnected';
+    healthStatus.code = RESPONSE_CODES.ERROR;
+    healthStatus.message = '服务异常';
+  }
+
+  // 检查 Redis 连接
+  try {
+    const { isRedisAvailable } = require('./utils/redis');
+    healthStatus.services.redis = isRedisAvailable() ? 'connected' : 'disconnected';
+    if (!isRedisAvailable()) {
+      healthStatus.code = RESPONSE_CODES.ERROR;
+      healthStatus.message = '服务异常';
+    }
+  } catch (error) {
+    healthStatus.services.redis = 'disconnected';
+    healthStatus.code = RESPONSE_CODES.ERROR;
+    healthStatus.message = '服务异常';
+  }
+
+  const statusCode = healthStatus.code === RESPONSE_CODES.SUCCESS ? HTTP_STATUS.OK : HTTP_STATUS.SERVICE_UNAVAILABLE;
+  res.status(statusCode).json(healthStatus);
 });
 
 // 路由配置

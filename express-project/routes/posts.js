@@ -42,14 +42,16 @@ async function extractVideoThumbnail(buffer, filename) {
 
     let coverUrl;
     if (config.storage.type === 'local') {
-      const fs = require('fs');
+      const fs = require('fs').promises;
       const path = require('path');
       const uploadDir = path.join(__dirname, '..', 'public', 'uploads', 'covers');
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
+      try {
+        await fs.access(uploadDir);
+      } catch {
+        await fs.mkdir(uploadDir, { recursive: true });
       }
       const filePath = path.join(uploadDir, thumbFilename);
-      fs.writeFileSync(filePath, thumbnailBuffer);
+      await fs.writeFile(filePath, thumbnailBuffer);
       coverUrl = `/uploads/covers/${thumbFilename}`;
     } else {
       // 其他存储方式（R2/S3/图床）
@@ -333,6 +335,16 @@ router.get('/search', optionalAuth, async (req, res) => {
 
     if (!keyword) {
       return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '请输入搜索关键词' });
+    }
+
+    // 限制关键词长度和字符，防止SQL注入和性能问题
+    if (keyword.length > 100) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '搜索关键词过长' });
+    }
+
+    // 只允许字母、数字、中文和常见标点
+    if (!/^[\u4e00-\u9fa5a-zA-Z0-9\s\-_.,!?]+$/.test(keyword)) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: RESPONSE_CODES.VALIDATION_ERROR, message: '搜索关键词包含非法字符' });
     }
 
     console.log(`🔍 搜索笔记 - 关键词: ${keyword}, 页码: ${page}, 每页: ${limit}, 当前用户ID: ${currentUserId}`);
@@ -823,6 +835,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const originalPost = await db('posts').where({ id: postId }).select('status', 'content').first();
     const wasOriginallyDraft = originalPost && originalPost.status === 1;
     const originalContent = originalPost ? originalPost.content : '';
+    const newStatus = status !== undefined ? status : 2;
 
     // 更新笔记基本信息
     await db('posts')
@@ -831,8 +844,34 @@ router.put('/:id', authenticateToken, async (req, res) => {
         title: title || '',
         content: sanitizedContent,
         category_id: category_id || null,
-        status: status !== undefined ? status : 2
+        status: newStatus
       });
+
+    // 如果笔记状态从非待审核变为待审核，添加审核记录
+    // 如果笔记状态从待审核变为其他状态，关闭审核记录
+    if (originalPost) {
+      if (newStatus === 2 && originalPost.status !== 2) {
+        // 变为待审核，添加审核记录
+        try {
+          await db('audit').insert({
+            type: 3,
+            target_id: String(postId),
+            status: 0
+          });
+        } catch (error) {
+          console.error('创建审核记录失败:', error);
+        }
+      } else if (newStatus !== 2 && originalPost.status === 2) {
+        // 从待审核变为其他状态，关闭审核记录
+        try {
+          await db('audit')
+            .where({ target_id: String(postId), type: 3 })
+            .update({ status: 1, updated_at: new Date() });
+        } catch (error) {
+          console.error('关闭审核记录失败:', error);
+        }
+      }
+    }
 
     // 根据笔记类型处理媒体文件
     if (postType === 2) {
@@ -898,59 +937,61 @@ router.put('/:id', authenticateToken, async (req, res) => {
       }
     }
 
-    // 获取原有标签列表
-    const oldTagsResult = await db({ t: 'tags' })
-      .join({ pt: 'post_tags' }, 't.id', 'pt.tag_id')
-      .where('pt.post_id', postId)
-      .select('t.id', 't.name');
-    
-    const oldTags = oldTagsResult.map(tag => tag.name);
-    const oldTagIds = new Map(oldTagsResult.map(tag => [tag.name, tag.id]));
-
+    // 使用事务处理标签更新，防止竞态条件
     const newTags = tags || [];
+    await db.transaction(async (trx) => {
+      // 获取原有标签列表
+      const oldTagsResult = await trx({ t: 'tags' })
+        .join({ pt: 'post_tags' }, 't.id', 'pt.tag_id')
+        .where('pt.post_id', postId)
+        .select('t.id', 't.name');
+      
+      const oldTags = oldTagsResult.map(tag => tag.name);
+      const oldTagIds = new Map(oldTagsResult.map(tag => [tag.name, tag.id]));
 
-    // 找出需要删除和新增的标签
-    const tagsToRemove = oldTags.filter(tagName => !newTags.includes(tagName));
-    const tagsToAdd = newTags.filter(tagName => !oldTags.includes(tagName));
+      // 找出需要删除和新增的标签
+      const tagsToRemove = oldTags.filter(tagName => !newTags.includes(tagName));
+      const tagsToAdd = newTags.filter(tagName => !oldTags.includes(tagName));
 
-    // 删除原有标签关联
-    await db('post_tags').where({ post_id: postId }).del();
+      // 删除原有标签关联
+      await trx('post_tags').where({ post_id: postId }).del();
 
-    // 减少已删除标签的使用次数
-    for (const tagName of tagsToRemove) {
-      const tagId = oldTagIds.get(tagName);
-      if (tagId) {
-        await db('tags').where({ id: tagId }).update({
-          use_count: db.raw('GREATEST(use_count - 1, 0)')
-        });
-      }
-    }
-
-    // 处理新标签
-    if (newTags.length > 0) {
-      for (const tagName of newTags) {
-        let tagRecord = await db('tags').where({ name: tagName }).select('id').first();
-        let tagId;
-
-        if (!tagRecord) {
-          const tagResult2 = await db('tags').insert({ name: tagName }).returning('id');
-          tagId = Array.isArray(tagResult2) && tagResult2.length > 0 ? tagResult2[0].id : tagResult2[0];
-        } else {
-          tagId = tagRecord.id;
-        }
-
-        // 关联笔记和标签
-        await db('post_tags').insert({
-          post_id: postId,
-          tag_id: tagId
-        });
-
-        // 只对新增的标签增加使用次数
-        if (tagsToAdd.includes(tagName)) {
-          await db('tags').where({ id: tagId }).increment('use_count', 1);
+      // 减少已删除标签的使用次数
+      for (const tagName of tagsToRemove) {
+        const tagId = oldTagIds.get(tagName);
+        if (tagId) {
+          await trx('tags').where({ id: tagId }).update({
+            use_count: trx.raw('GREATEST(use_count - 1, 0)')
+          });
         }
       }
-    }
+
+      // 处理新标签
+      if (newTags.length > 0) {
+        for (const tagName of newTags) {
+          let tagRecord = await trx('tags').where({ name: tagName }).select('id').first();
+          let tagId;
+
+          if (!tagRecord) {
+            const tagResult2 = await trx('tags').insert({ name: tagName }).returning('id');
+            tagId = Array.isArray(tagResult2) && tagResult2.length > 0 ? tagResult2[0].id : tagResult2[0];
+          } else {
+            tagId = tagRecord.id;
+          }
+
+          // 关联笔记和标签
+          await trx('post_tags').insert({
+            post_id: postId,
+            tag_id: tagId
+          });
+
+          // 只对新增的标签增加使用次数
+          if (tagsToAdd.includes(tagName)) {
+            await trx('tags').where({ id: tagId }).increment('use_count', 1);
+          }
+        }
+      }
+    });
 
     // 处理@用户通知
     if (status === 0 && content) {
@@ -1038,28 +1079,36 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       return res.status(HTTP_STATUS.FORBIDDEN).json({ code: RESPONSE_CODES.FORBIDDEN, message: '无权限删除此笔记' });
     }
 
-    // 获取笔记关联的标签，减少标签使用次数
-    const tagRelations = await db('post_tags').where({ post_id: postId }).select('tag_id');
-    
-    for (const relation of tagRelations) {
-      await db('tags').where({ id: relation.tag_id }).update({
-        use_count: db.raw('GREATEST(use_count - 1, 0)')
-      });
-    }
+    // 使用事务包裹所有删除操作，确保数据一致性
+    const videoRows = await db.transaction(async (trx) => {
+      // 获取笔记关联的标签，减少标签使用次数
+      const tagRelations = await trx('post_tags').where({ post_id: postId }).select('tag_id');
+      
+      for (const relation of tagRelations) {
+        await trx('tags').where({ id: relation.tag_id }).update({
+          use_count: trx.raw('GREATEST(use_count - 1, 0)')
+        });
+      }
 
-    // 获取笔记关联的视频文件，用于清理
-    const videoRows = await db('post_videos').where({ post_id: postId }).select('video_url', 'cover_url');
+      // 获取笔记关联的视频文件，用于清理
+      const videoRows = await trx('post_videos').where({ post_id: postId }).select('video_url', 'cover_url');
 
-    // 删除相关数据（按顺序删除以满足外键约束）
-    await db('post_images').where({ post_id: postId }).del();
-    await db('post_videos').where({ post_id: postId }).del();
-    await db('post_tags').where({ post_id: postId }).del();
-    await db('likes').where({ target_type: '1', target_id: String(postId) }).del();
-    await db('collections').where({ post_id: String(postId) }).del();
-    await db('comments').where({ post_id: postId }).del();
-    await db('notifications').where({ target_id: String(postId) }).del();
+      // 删除相关数据（按顺序删除以满足外键约束）
+      await trx('post_images').where({ post_id: postId }).del();
+      await trx('post_videos').where({ post_id: postId }).del();
+      await trx('post_tags').where({ post_id: postId }).del();
+      await trx('likes').where({ target_type: '1', target_id: String(postId) }).del();
+      await trx('collections').where({ post_id: String(postId) }).del();
+      await trx('comments').where({ post_id: postId }).del();
+      await trx('notifications').where({ target_id: String(postId) }).del();
 
-    // 清理关联的视频文件
+      // 最后删除笔记
+      await trx('posts').where({ id: postId }).del();
+
+      return videoRows;
+    });
+
+    // 清理关联的视频文件（在事务外执行，避免阻塞）
     if (videoRows.length > 0) {
       const videoUrls = videoRows.map(row => row.video_url).filter(url => url);
       const coverUrls = videoRows.map(row => row.cover_url).filter(url => url);
@@ -1068,9 +1117,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         console.error('清理笔记关联视频文件失败:', error);
       });
     }
-
-    // 最后删除笔记
-    await db('posts').where({ id: postId }).del();
 
     console.log(`删除笔记成功 - 用户ID: ${userId}, 笔记ID: ${postId}`);
 

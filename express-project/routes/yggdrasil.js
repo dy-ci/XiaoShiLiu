@@ -49,6 +49,63 @@ const MAX_SERVER_ID_CACHE_SIZE = 5000;
 const SERVER_ID_CACHE_TTL = 30000; // 30秒
 const serverIdCache = new Map();
 
+// 材质代理允许的图片URL域名白名单
+const TEXTURE_PROXY_WHITELIST = [
+  's3.dy.ci'
+];
+
+/**
+ * 验证材质URL是否安全，防止SSRF攻击
+ * @param {string} url - 要验证的URL
+ * @returns {boolean} - 是否安全
+ */
+function isValidTextureUrl(url) {
+  try {
+    const parsedUrl = new URL(url);
+    
+    // 只允许 http 和 https 协议
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return false;
+    }
+    
+    // 检查是否在白名单中
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const isWhitelisted = TEXTURE_PROXY_WHITELIST.some(domain => 
+      hostname === domain || hostname.endsWith('.' + domain)
+    );
+    
+    if (!isWhitelisted) {
+      console.warn(`[Yggdrasil] 材质代理拒绝非白名单域名: ${hostname}`);
+      return false;
+    }
+    
+    // 禁止访问内网IP
+    const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+    if (ipv4Pattern.test(hostname)) {
+      const parts = hostname.split('.').map(Number);
+      // 检查是否是内网IP
+      if (parts[0] === 10 || 
+          (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) || 
+          (parts[0] === 192 && parts[1] === 168) ||
+          parts[0] === 127 ||
+          parts[0] === 0) {
+        console.warn(`[Yggdrasil] 材质代理拒绝内网IP: ${hostname}`);
+        return false;
+      }
+    }
+    
+    // 禁止IPv6本地地址
+    if (hostname === '[::1]' || hostname === '::1') {
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('[Yggdrasil] URL验证失败:', error.message);
+    return false;
+  }
+}
+
 // 代理 URL 函数：直接返回原始 URL（不再走代理）
 function getProxyUrl(originalUrl, req) {
   return originalUrl;
@@ -1007,6 +1064,12 @@ router.get('/textures', async (req, res) => {
 
     // 解码原始 URL
     const originalUrl = decodeURIComponent(encodedUrl);
+
+    // 验证 URL 安全性，防止 SSRF 攻击
+    if (!isValidTextureUrl(originalUrl)) {
+      return res.status(403).send('Forbidden: URL not allowed');
+    }
+
     console.log(`[Yggdrasil] 材质代理: ${originalUrl.substring(0, 80)}...`);
 
     // 获取图片

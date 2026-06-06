@@ -249,7 +249,7 @@ class NotificationHelper {
    */
   static async insertNotification(notificationData) {
     const db = getDB();
-    const [result] = await db('notifications')
+    const result = await db('notifications')
       .insert({
         user_id: notificationData.user_id,
         sender_id: notificationData.sender_id,
@@ -260,7 +260,12 @@ class NotificationHelper {
         is_read: notificationData.is_read
       })
       .returning('*');
-    return result[0];
+    
+    // 兼容不同数据库驱动的返回格式
+    if (Array.isArray(result)) {
+      return result[0];
+    }
+    return result;
   }
 
   /**

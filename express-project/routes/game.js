@@ -38,6 +38,63 @@ const MAX_WARDROBE_ITEMS = parseInt(process.env.MAX_WARDROBE_ITEMS) || 10;
 const MAX_TEMP_PASSWORDS = parseInt(process.env.MAX_TEMP_PASSWORDS) || 5;
 const SKIN_MAX_SIZE = 500 * 1024;
 
+// 皮肤代理允许的图片URL域名白名单
+const SKIN_PROXY_WHITELIST = [
+  's3.dy.ci'
+];
+
+/**
+ * 验证图片URL是否安全，防止SSRF攻击
+ * @param {string} url - 要验证的URL
+ * @returns {boolean} - 是否安全
+ */
+function isValidImageUrl(url) {
+  try {
+    const parsedUrl = new URL(url);
+    
+    // 只允许 http 和 https 协议
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return false;
+    }
+    
+    // 检查是否在白名单中
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const isWhitelisted = SKIN_PROXY_WHITELIST.some(domain => 
+      hostname === domain || hostname.endsWith('.' + domain)
+    );
+    
+    if (!isWhitelisted) {
+      console.warn(`[Game] 皮肤代理拒绝非白名单域名: ${hostname}`);
+      return false;
+    }
+    
+    // 禁止访问内网IP
+    const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+    if (ipv4Pattern.test(hostname)) {
+      const parts = hostname.split('.').map(Number);
+      // 检查是否是内网IP
+      if (parts[0] === 10 || 
+          (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) || 
+          (parts[0] === 192 && parts[1] === 168) ||
+          parts[0] === 127 ||
+          parts[0] === 0) {
+        console.warn(`[Game] 皮肤代理拒绝内网IP: ${hostname}`);
+        return false;
+      }
+    }
+    
+    // 禁止IPv6本地地址
+    if (hostname === '[::1]' || hostname === '::1') {
+      return false;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('[Game] URL验证失败:', error.message);
+    return false;
+  }
+}
+
 // 生成随机临时密码（12位，字母数字混合）
 function generateTempPassword() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
@@ -951,6 +1008,14 @@ router.get('/skin-proxy', async (req, res) => {
       });
     }
 
+    // 验证 URL 安全性，防止 SSRF 攻击
+    if (!isValidImageUrl(imageUrl)) {
+      return res.status(HTTP_STATUS.FORBIDDEN).json({
+        code: RESPONSE_CODES.FORBIDDEN,
+        message: '不允许的 URL'
+      });
+    }
+
     console.log(`[Game] 皮肤代理请求: ${imageUrl.substring(0, 80)}...`);
 
     // 获取图片
@@ -1638,7 +1703,7 @@ router.post('/profile/:id/temp-password', authenticateToken, async (req, res) =>
         profile_id: profileId,
         user_id: req.user.id,
         temp_password_hash: passwordHash,
-        temp_password_plain: plainPassword,
+        // 不再存储明文密码，仅返回一次给用户
         max_uses: uses,
         used_count: 0,
         expires_at: expiresDate,

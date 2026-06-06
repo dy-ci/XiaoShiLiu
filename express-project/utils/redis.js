@@ -303,7 +303,9 @@ async function rateLimitCheck(key, limit, windowSeconds) {
   }
 
   try {
-    const now = Date.now();
+    // 使用 Redis 服务器时间，避免客户端时钟漂移问题
+    const redisTime = await client.time();
+    const now = Math.floor(redisTime[0] * 1000 + redisTime[1] / 1000);
     const windowStart = now - windowSeconds * 1000;
 
     // 使用 Redis Sorted Set 实现滑动窗口
