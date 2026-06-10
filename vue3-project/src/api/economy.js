@@ -9,6 +9,9 @@ export const getLevel = () => request.get('/economy/level')
 // 获取已装备
 export const getEquipped = () => request.get('/economy/equipped')
 
+// 获取指定用户的装备摘要（公开接口）
+export const getUserEquipped = (userId) => request.get(`/economy/equipped/${userId}`)
+
 // 获取背包
 export const getInventory = (params) => request.get('/economy/inventory', { params })
 

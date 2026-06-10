@@ -104,10 +104,10 @@ const ACHIEVEMENT_DEFINITIONS = {
 // ========== 辅助函数 ==========
 
 /**
- * 获取用户ID（兼容 req.user.id 和 req.user.userId）
+ * 获取用户ID（悦社号，优先使用 req.user.user_id）
  */
 function getUserId(req) {
-  return req.user.userId || req.user.id;
+  return req.user.user_id || req.user.userId || req.user.id;
 }
 
 /**
@@ -324,57 +324,78 @@ router.get('/level', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/economy/equipped - 获取已装备的道具
+/**
+ * 获取用户装备摘要（内部复用）
+ * @param {string} userId - 用户ID
+ * @returns {Promise<Object>} 装备摘要
+ */
+async function getUserEquippedSummary(userId) {
+  const db = getDB();
+
+  const equipped = await db('user_equipped')
+    .where({ user_id: userId })
+    .first();
+
+  if (!equipped) {
+    return {
+      frame_id: null,
+      accessory_id: null,
+      name_style: null,
+      card_bg_id: null,
+      chat_bubble_id: null,
+    };
+  }
+
+  const resultData = {
+    frame_id: equipped.frame_id,
+    accessory_id: equipped.accessory_id,
+    name_style: equipped.name_style,
+    card_bg_id: equipped.card_bg_id,
+    chat_bubble_id: equipped.chat_bubble_id,
+  };
+
+  // 查询各装备的 style_config
+  if (equipped.frame_id) {
+    const frameItem = await db('user_inventory')
+      .where({ user_id: userId, item_id: equipped.frame_id })
+      .first();
+    if (frameItem) {
+      resultData.frame_config = typeof frameItem.style_config === 'string'
+        ? JSON.parse(frameItem.style_config) : frameItem.style_config;
+    }
+  }
+
+  if (equipped.accessory_id) {
+    const accItem = await db('user_inventory')
+      .where({ user_id: userId, item_id: equipped.accessory_id })
+      .first();
+    if (accItem) {
+      resultData.accessory_config = typeof accItem.style_config === 'string'
+        ? JSON.parse(accItem.style_config) : accItem.style_config;
+    }
+  }
+
+  if (equipped.name_style) {
+    const nameItem = await db('user_inventory')
+      .where({ user_id: userId, item_id: equipped.name_style })
+      .first();
+    if (nameItem) {
+      resultData.name_style_config = typeof nameItem.style_config === 'string'
+        ? JSON.parse(nameItem.style_config) : nameItem.style_config;
+    }
+  }
+
+  return resultData;
+}
+
+// GET /api/economy/equipped - 获取当前用户已装备的道具
 router.get('/equipped', authenticateToken, async (req, res) => {
   try {
     const userId = getUserId(req);
     const db = getDB();
 
     await ensureEquippedRecord(db, userId);
-
-    const equipped = await db('user_equipped')
-      .where({ user_id: userId })
-      .first();
-
-    // 构建返回数据
-    const resultData = {
-      frame_id: equipped.frame_id,
-      accessory_id: equipped.accessory_id,
-      name_style: equipped.name_style,
-      card_bg_id: equipped.card_bg_id,
-      chat_bubble_id: equipped.chat_bubble_id,
-    };
-
-    // 查询各装备的 style_config
-    if (equipped.frame_id) {
-      const frameItem = await db('user_inventory')
-        .where({ user_id: userId, item_id: equipped.frame_id })
-        .first();
-      if (frameItem) {
-        resultData.frame_config = typeof frameItem.style_config === 'string'
-          ? JSON.parse(frameItem.style_config) : frameItem.style_config;
-      }
-    }
-
-    if (equipped.accessory_id) {
-      const accItem = await db('user_inventory')
-        .where({ user_id: userId, item_id: equipped.accessory_id })
-        .first();
-      if (accItem) {
-        resultData.accessory_config = typeof accItem.style_config === 'string'
-          ? JSON.parse(accItem.style_config) : accItem.style_config;
-      }
-    }
-
-    if (equipped.name_style) {
-      const nameItem = await db('user_inventory')
-        .where({ user_id: userId, item_id: equipped.name_style })
-        .first();
-      if (nameItem) {
-        resultData.name_style_config = typeof nameItem.style_config === 'string'
-          ? JSON.parse(nameItem.style_config) : nameItem.style_config;
-      }
-    }
+    const resultData = await getUserEquippedSummary(userId);
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,
@@ -383,6 +404,33 @@ router.get('/equipped', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('[Economy] 获取装备信息失败:', error);
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
+      code: RESPONSE_CODES.ERROR,
+      message: '服务器内部错误',
+    });
+  }
+});
+
+// GET /api/economy/equipped/:userId - 获取指定用户的装备摘要（公开接口）
+router.get('/equipped/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
+        code: RESPONSE_CODES.VALIDATION_ERROR,
+        message: '缺少 userId 参数',
+      });
+    }
+
+    const resultData = await getUserEquippedSummary(userId);
+
+    res.json({
+      code: RESPONSE_CODES.SUCCESS,
+      data: resultData,
+      message: '获取成功',
+    });
+  } catch (error) {
+    console.error('[Economy] 获取用户装备信息失败:', error);
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
       code: RESPONSE_CODES.ERROR,
       message: '服务器内部错误',

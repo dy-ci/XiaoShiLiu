@@ -83,16 +83,18 @@
         <div class="content-section" ref="contentSection" :style="windowWidth > 768 ? { width: contentSectionWidth + 'px' } : {}">
           <div class="author-wrapper" ref="authorWrapper">
             <div class="author-info">
-              <div class="author-avatar-container">
-                <img :src="authorData.avatar" :alt="authorData.name" class="author-avatar "
-                  @click="onUserClick(authorData.id)" v-user-hover="getAuthorUserHoverConfig()" 
-                  @error="handleAvatarError" />
-                <VerifiedBadge :verified="authorData.verified" size="medium" class="author-verified-badge" />
-              </div>
-              <div class="author-name-container">
-                <span class="author-name" @click="onUserClick(authorData.id)"
-                  v-user-hover="getAuthorUserHoverConfig()">{{ authorData.name }}</span>
-              </div>
+              <UserDisplay
+                :user="{ user_id: authorData.id, avatar: authorData.avatar, nickname: authorData.name }"
+                :userId="authorData.id"
+                avatarSize="md"
+                :clickable="true"
+                @click="onUserClick(authorData.id)"
+                class="detail-author-display"
+              >
+                <template #extra>
+                  <VerifiedBadge :verified="authorData.verified" size="medium" />
+                </template>
+              </UserDisplay>
             </div>
             <FollowButton v-if="!isCurrentUserPost" :is-following="authorData.isFollowing" :user-id="authorData.id"
               @follow="handleFollow" @unfollow="handleUnfollow" />
@@ -206,19 +208,19 @@
 
                 <div v-for="comment in enhancedComments" :key="comment.id" class="comment-item"
                   :data-comment-id="String(comment.id)">
-                  <div class="comment-avatar-container">
-                    <img :src="comment.avatar" :alt="comment.username" class="comment-avatar clickable-avatar"
-                      @click="onUserClick(comment.user_id)" @error="handleAvatarError"
-                      v-user-hover="getCommentUserHoverConfig(comment)" />
-                    <VerifiedBadge :verified="comment.verified || 0" size="small" class="comment-verified-badge" />
-                  </div>
+                  <UserDisplay
+                    :user="{ user_id: comment.user_id, avatar: comment.avatar, nickname: isCurrentUserComment(comment) ? '我' : comment.username }"
+                    :userId="comment.user_id"
+                    avatarSize="sm"
+                    :clickable="true"
+                    @click="onUserClick(comment.user_id)"
+                    class="comment-user-display"
+                  />
                   <div class="comment-content">
                     <div class="comment-header">
                       <div class="comment-user-info">
-                        <span class="comment-username" @click="onUserClick(comment.user_id)"
-                          v-user-hover="getCommentUserHoverConfig(comment)">
-                          <span v-if="isCurrentUserComment(comment)">我</span>
-                          <span v-else>{{ comment.username }}</span>
+                        <span v-if="isPostAuthorComment(comment)" class="author-badge author-badge--parent">
+                          作者
                         </span>
                         <div v-if="isPostAuthorComment(comment)" class="author-badge author-badge--parent">
                           作者
@@ -249,20 +251,17 @@
                     <div v-if="comment.replies && comment.replies.length > 0" class="replies-list">
                       <div v-for="reply in getDisplayedReplies(comment.replies, comment.id)" :key="reply.id"
                         class="reply-item" :data-comment-id="String(reply.id)">
-                        <div class="reply-avatar-container">
-                          <img :src="reply.avatar" :alt="reply.username" class="reply-avatar "
-                            @click="onUserClick(reply.user_id)" @error="handleAvatarError"
-                            v-user-hover="getCommentUserHoverConfig(reply)" />
-                          <VerifiedBadge :verified="reply.verified || 0" size="mini" class="reply-verified-badge" />
-                        </div>
+                        <UserDisplay
+                          :user="{ user_id: reply.user_id, avatar: reply.avatar, nickname: isCurrentUserComment(reply) ? '我' : reply.username }"
+                          :userId="reply.user_id"
+                          avatarSize="xs"
+                          :clickable="true"
+                          @click="onUserClick(reply.user_id)"
+                          class="reply-user-display"
+                        />
                         <div class="reply-content">
                           <div class="reply-header">
                             <div class="reply-user-info">
-                              <span class="reply-username" @click="onUserClick(reply.user_id)"
-                                v-user-hover="getCommentUserHoverConfig(reply)">
-                                <span v-if="isCurrentUserComment(reply)">我</span>
-                                <span v-else>{{ reply.username }}</span>
-                              </span>
                               <div v-if="isPostAuthorComment(reply)" class="author-badge author-badge--reply">
                                 作者
                               </div>
@@ -325,7 +324,7 @@
                   <div v-if="replyingTo" class="reply-status">
                     <div class="reply-status-content">
                       <div class="reply-first-line">
-                        回复 <span class="reply-username">{{ replyingTo.username }}</span>
+                        回复 <UserName :nickname="replyingTo.username" class="reply-username" />
                       </div>
                       <div class="reply-second-line">
                         <ContentRenderer :content="replyingTo.content" @image-click="handleCommentImageClick" />
@@ -432,6 +431,8 @@ import SvgIcon from './SvgIcon.vue'
 import FollowButton from './FollowButton.vue'
 import LikeButton from './LikeButton.vue'
 import MessageToast from './MessageToast.vue'
+import UserDisplay from './user/UserDisplay.vue'
+import UserName from './user/UserName.vue'
 import EmojiPicker from '@/components/EmojiPicker.vue'
 import MentionModal from '@/components/mention/MentionModal.vue'
 import ContentRenderer from './ContentRenderer.vue'

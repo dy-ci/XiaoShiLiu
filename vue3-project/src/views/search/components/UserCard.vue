@@ -2,14 +2,17 @@
     <div class="user-card" @click="handleUserClick">
         <BaseSkeleton v-if="!avatarLoaded" type="user-card" avatar-size="48px" :show-stats="true" :show-button="true" />
         <div class="user-content" :class="{ 'content-hidden': !avatarLoaded }">
-            <div class="user-avatar" v-user-hover="userHoverConfig">
-                <img v-img-lazy="user.avatar" :alt="user.nickname" class="avatar-img lazy-avatar" @load="onAvatarLoaded"
-                    @error="handleAvatarError">
-            </div>
+            <UserDisplay
+                :user="{ user_id: user.user_id || user.userId, avatar: user.avatar, nickname: user.nickname }"
+                :userId="user.user_id || user.userId"
+                avatarSize="md"
+                :clickable="false"
+                layout="horizontal"
+                class="search-user-display"
+            />
             <div class="user-info">
                 <div class="user-main">
                     <div class="nickname-container">
-                        <h3 class="user-nickname" v-user-hover="userHoverConfig">{{ user.nickname }}</h3>
                         <VerifiedBadge :verified="user.verified" />
                     </div>
                     <div class="user-id">悦社号：{{ user.userId }}</div>
@@ -33,6 +36,7 @@ import { useUserStore } from '@/stores/user'
 import FollowButton from '@/components/FollowButton.vue'
 import BaseSkeleton from '@/components/skeleton/BaseSkeleton.vue'
 import VerifiedBadge from '@/components/VerifiedBadge.vue'
+import UserDisplay from '@/components/user/UserDisplay.vue'
 import { userApi } from '@/api/index.js'
 import defaultAvatar from '@/assets/imgs/avatar.png'
 

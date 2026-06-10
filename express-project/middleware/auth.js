@@ -12,14 +12,14 @@ const SESSION_CACHE_TTL = 7 * 24 * 60 * 60; // 7天
  */
 function extractTokenFromHeader(req) {
   const isAdminPath = req.path && (req.path.startsWith('/admin') || req.path.startsWith('/api/admin'))
-  
-  if (isAdminPath && req.cookies && req.cookies.admin_token) {
-    return req.cookies.admin_token;
-  }
-  
+
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     return authHeader.substring(7);
+  }
+
+  if (isAdminPath && req.cookies && req.cookies.admin_token) {
+    return req.cookies.admin_token;
   }
 
   if (req.cookies && req.cookies.token) {

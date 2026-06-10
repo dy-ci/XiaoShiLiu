@@ -29,6 +29,22 @@ const reset401Lock = () => {
 request.interceptors.request.use(
   config => {
     config.withCredentials = true
+
+    // 对 admin 路径的请求，自动附加 admin_token（确保代理场景下认证正常）
+    const url = config.url || ''
+    if (url.startsWith('/admin') || url.startsWith('/api/admin')) {
+      const adminToken = localStorage.getItem('admin_token')
+      if (adminToken) {
+        config.headers.Authorization = `Bearer ${adminToken}`
+      }
+    } else {
+      // 普通用户请求，附加用户 token
+      const userToken = localStorage.getItem('token') || localStorage.getItem('user_token')
+      if (userToken) {
+        config.headers.Authorization = `Bearer ${userToken}`
+      }
+    }
+
     return config
   },
   error => {

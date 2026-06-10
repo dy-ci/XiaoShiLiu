@@ -186,9 +186,16 @@ const userFormFields = [
 const editFormFields = userFormFields.filter(field => field.key !== 'is_active')
 
 const getAuthHeaders = () => {
-  return {
+  const headers = {
     'Content-Type': 'application/json'
   }
+
+  const adminToken = localStorage.getItem('admin_token')
+  if (adminToken) {
+    headers['Authorization'] = `Bearer ${adminToken}`
+  }
+
+  return headers
 }
 
 // 通用API请求处理函数

@@ -14,6 +14,7 @@ import ContentRenderer from '@/components/ContentRenderer.vue'
 import BackToTopButton from '@/components/BackToTopButton.vue'
 import ImageViewer from '@/components/ImageViewer.vue'
 import VerifiedBadge from '@/components/VerifiedBadge.vue'
+import UserDisplay from '@/components/user/UserDisplay.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -256,11 +257,22 @@ onMounted(async () => {
 
     <div class="user-info" v-if="userInfo.nickname">
       <div class="basic-info">
-        <img :src="userInfo.avatar || defaultAvatar" :alt="userInfo.nickname || '用户头像'" class="avatar"
-          @click="previewAvatar" @error="handleAvatarError">
+        <UserDisplay
+          :user="userInfo"
+          :userId="userInfo.user_id"
+          avatarSize="xl"
+          :clickable="false"
+          class="profile-user-display"
+        >
+          <template #extra>
+            <div class="user-content">
+              <div class="user-id text-ellipsis">悦社号：{{ userInfo?.user_id || '' }}</div>
+              <div class="user-IP text-ellipsis">IP属地：{{ userInfo?.location || '未知' }}</div>
+            </div>
+          </template>
+        </UserDisplay>
         <div class="user-basic">
           <div class="user-nickname">
-            <span>{{ userInfo?.nickname || '用户' }}</span>
             <VerifiedBadge :verified="userInfo?.verified" size="large" />
           </div>
           <div class="user-content">

@@ -386,6 +386,12 @@ const getAuthHeaders = () => {
     'Content-Type': 'application/json'
   }
 
+  // 对 admin 路径的请求附加 admin_token
+  const adminToken = localStorage.getItem('admin_token')
+  if (adminToken) {
+    headers['Authorization'] = `Bearer ${adminToken}`
+  }
+
   return headers
 }
 

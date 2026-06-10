@@ -33,13 +33,15 @@
           <div v-for="user in displayedUsers" :key="user.id" class="friend-item"
             :class="{ 'loading-disabled': loading || searchLoading }"
             @click="!(loading || searchLoading) && selectFriend(user)">
-            <img :src="getImageSrc(user.avatar || defaultAvatar, user.id)" :alt="user.nickname" class="friend-avatar"
-              @load="onImageLoad(user.id)" @error="onImageError(user.id)" />
+            <UserDisplay
+              :user="user"
+              :userId="user.user_id"
+              avatarSize="sm"
+              :clickable="false"
+              layout="horizontal"
+              class="mention-user-display"
+            />
             <div class="friend-info">
-              <div class="friend-nickname-container">
-                <div class="friend-nickname">{{ user.nickname }}</div>
-                <VerifiedBadge :verified="user.verified || 0" size="small" />
-              </div>
               <div class="friend-id">@{{ user.user_id }}</div>
             </div>
           </div>
@@ -61,6 +63,7 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import SvgIcon from '@/components/SvgIcon.vue'
 import SkeletonList from '@/components/skeleton/SkeletonList.vue'
 import VerifiedBadge from '@/components/VerifiedBadge.vue'
+import UserDisplay from '@/components/user/UserDisplay.vue'
 import { userApi, authApi } from '@/api/index.js'
 import { useScrollLock } from '@/composables/useScrollLock'
 

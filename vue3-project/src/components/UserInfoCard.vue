@@ -3,11 +3,14 @@
 
     <div class="card-header">
       <div class="avatar-info">
-        <img :src="userInfo.avatar" :alt="userInfo.nickname" class="avatar" @error="handleAvatarError" />
-        <div class="nickname-container">
-          <span class="nickname">{{ userInfo.nickname }}</span>
-          <VerifiedBadge :verified="userInfo.verified" />
-        </div>
+        <UserDisplay
+          :user="userInfo"
+          :userId="userInfo.user_id || userInfo.userId || userInfo.id"
+          avatarSize="md"
+          :clickable="false"
+          layout="horizontal"
+          class="info-card-user-display"
+        />
       </div>
       <FollowButton v-if="!isCurrentUser"
         :user-id="mergedUserInfo.user_id || mergedUserInfo.userId || mergedUserInfo.id"
@@ -60,6 +63,7 @@ import { useUserStore } from '@/stores/user'
 import FollowButton from './FollowButton.vue'
 import ContentRenderer from './ContentRenderer.vue'
 import VerifiedBadge from './VerifiedBadge.vue'
+import UserDisplay from './user/UserDisplay.vue'
 import defaultAvatar from '@/assets/imgs/avatar.png'
 
 const router = useRouter()

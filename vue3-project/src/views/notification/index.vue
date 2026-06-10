@@ -13,6 +13,7 @@ import LikeButton from '@/components/LikeButton.vue'
 import DetailCard from '@/components/DetailCard.vue'
 import BackToTopButton from '@/components/BackToTopButton.vue'
 import VerifiedBadge from '@/components/VerifiedBadge.vue'
+import UserDisplay from '@/components/user/UserDisplay.vue'
 import { getCommentNotifications, getLikeNotifications, getFollowNotifications, getCollectionNotifications, markNotificationAsRead, markAllNotificationsAsRead } from '@/api/notification.js'
 import { getPostDetail } from '@/api/posts.js'
 import { postApi, userApi, commentApi } from '@/api/index.js'
@@ -1254,17 +1255,19 @@ watch(isLoggedIn, async (newValue, oldValue) => {
               <div v-for="item in commentsData" :key="item.notificationId" class="notification-item"
                 :class="{ 'unread': !item.isRead }" @mouseenter="handleNotificationHover(item)">
                 <div class="left-section">
-                  <a class="user-avatar clickable-avatar" v-user-hover="getUserHoverConfig(item.id)"
-                    @click="onUserClick(item.id, $event)">
-                    <img v-img-lazy="item.avatar" :alt="item.username" class="lazy-avatar" @error="handleImageError" />
-                  </a>
+                  <UserDisplay
+                    :user="{ user_id: item.id, avatar: item.avatar, nickname: item.username }"
+                    :userId="item.id"
+                    avatarSize="sm"
+                    :clickable="true"
+                    @click="onUserClick(item.id, $event)"
+                    class="notification-user-display"
+                  />
                   <div v-if="!item.isRead" class="unread-dot"></div>
                 </div>
                 <div class="right-section">
                   <div class="notification-content">
                     <div class="username-container">
-                      <a class="username clickable-name" v-user-hover="getUserHoverConfig(item.id)"
-                        @click="onUserClick(item.id, $event)">{{ item.username }}</a>
                       <VerifiedBadge :verified="item.verified || 0" />
                       <div v-if="isPostAuthor(item)" class="author-badge author-badge--notification">
                         作者

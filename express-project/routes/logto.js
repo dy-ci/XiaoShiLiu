@@ -638,8 +638,10 @@ router.post('/admin/callback', async (req, res) => {
           nickname: admin.nickname || logtoUser.name || logtoUser.nickname || '管理员',
           isSuper,
           permissions
-        }
-        // 不再返回tokens，token已通过安全Cookie传输
+        },
+        // 同时返回token，确保前端代理场景下也能正常认证
+        access_token: accessToken,
+        refresh_token: refreshToken
       }
     });
   } catch (error) {

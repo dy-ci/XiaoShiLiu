@@ -5,6 +5,7 @@ import SimpleSpinner from './spinner/SimpleSpinner.vue'
 import DetailCard from './DetailCard.vue'
 import LikeButton from './LikeButton.vue'
 import SvgIcon from './SvgIcon.vue'
+import UserDisplay from './user/UserDisplay.vue'
 import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
@@ -925,12 +926,13 @@ function handleImageError(event) {
                         </div>
                         <div class="content-title">{{ item.title }}</div>
                         <div class="contentlist">
-                            <img v-img-lazy="item.avatar" alt="" class="lazy-avatar clickable-avatar"
-                                @error="handleAvatarError" @load="onImageLoaded(item.id, 'avatarLoaded')"
-                                @click="onUserClick(item.author_account, $event)">
-                            <div class="contentlist-name clickable-name"
-                                @click="onUserClick(item.author_account, $event)">
-                                {{ item.author }}</div>
+                            <UserDisplay
+                                :user="{ user_id: item.author_account, avatar: item.avatar, nickname: item.author }"
+                                avatarSize="sm"
+                                :clickable="true"
+                                @click="onUserClick(item.author_account, $event)"
+                                class="waterfall-user-display"
+                            />
                             <div class="action-wrapper">
                                 <div class="like-num-wrapper">
                                     <LikeButton :is-liked="likeStore.getPostLikeState(item.id).liked"

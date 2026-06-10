@@ -63,13 +63,20 @@ export const useAdminStore = defineStore('admin', () => {
     try {
       console.log('Admin Logto Login data:', data)
       
-      // Token已通过HttpOnly Cookie设置，无需手动保存
-      // 只保存管理员信息
+      // 保存管理员信息
       admin.value = data.admin
       permissions.value = data.admin.permissions || []
 
       localStorage.setItem('admin_info', JSON.stringify(admin.value))
       localStorage.setItem('admin_permissions', JSON.stringify(permissions.value))
+
+      // 保存token到localStorage，确保代理场景下认证正常
+      if (data.access_token) {
+        localStorage.setItem('admin_token', data.access_token)
+      }
+      if (data.refresh_token) {
+        localStorage.setItem('admin_refresh_token', data.refresh_token)
+      }
 
       console.log('Logto login successful, permissions:', permissions.value)
       return { success: true }

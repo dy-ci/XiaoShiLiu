@@ -320,9 +320,16 @@ const roles = [
 ]
 
 const getAuthHeaders = () => {
-  return { 
+  const headers = {
     'Content-Type': 'application/json'
   }
+
+  const adminToken = localStorage.getItem('admin_token')
+  if (adminToken) {
+    headers['Authorization'] = `Bearer ${adminToken}`
+  }
+
+  return headers
 }
 
 const loadAdmins = async () => {

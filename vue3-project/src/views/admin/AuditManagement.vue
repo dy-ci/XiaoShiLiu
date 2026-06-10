@@ -72,6 +72,11 @@ const getAuthHeaders = () => {
     'Content-Type': 'application/json'
   }
 
+  const adminToken = localStorage.getItem('admin_token')
+  if (adminToken) {
+    headers['Authorization'] = `Bearer ${adminToken}`
+  }
+
   return headers
 }
 

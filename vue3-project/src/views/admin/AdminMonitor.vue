@@ -13,10 +13,14 @@
         <div v-else class="activities-list">
           <div v-for="activity in activities" :key="activity.id" class="activity-item"
             @click="handleActivityClick(activity)">
-            <div class="activity-icon">
-              <img :src="activity.avatar || defaultAvatar" alt="avatar" class="activity-avatar"
-                @error="onAvatarError($event)" />
-            </div>
+            <UserDisplay
+              :user="activity"
+              :userId="activity.user_id"
+              avatarSize="sm"
+              :clickable="false"
+              layout="horizontal"
+              class="monitor-user-display"
+            />
             <div class="activity-content">
               <div class="activity-title">
                 <template v-if="activity.type === 'comment_publish'">
@@ -27,7 +31,6 @@
               </div>
               <div class="activity-meta">
                 <span class="activity-type">{{ getActivityTypeText(activity.type) }}</span>
-                <span class="activity-user">{{ activity.nickname }}</span>
               </div>
             </div>
             <div class="activity-time">
@@ -47,6 +50,7 @@ import { useRouter } from 'vue-router'
 import { adminApi } from '@/api'
 import defaultAvatar from '@/assets/imgs/avatar.png'
 import ContentRenderer from '@/components/ContentRenderer.vue'
+import UserDisplay from '@/components/user/UserDisplay.vue'
 const router = useRouter()
 const activities = ref([])
 // const loading = ref(false) // 已移除，使用AdminLayout的全局加载状态

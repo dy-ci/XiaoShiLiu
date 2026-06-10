@@ -2,14 +2,19 @@
 import SvgIcon from '@/components/SvgIcon.vue'
 import DropdownMenu from '@/components/menu/DropdownMenu.vue'
 import CommonMenu from '@/components/menu/CommonMenu.vue'
+import UserDisplay from '@/components/user/UserDisplay.vue'
+import UserAvatar from '@/components/user/UserAvatar.vue'
+import UserName from '@/components/user/UserName.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouteUtils } from '@/composables/useRouteUtils'
 import { useUserStore } from '@/stores/user.js'
+import { useEconomyStore } from '@/stores/economy.js'
 import { useNotificationStore } from '@/stores/notification'
 import { useAuthStore } from '@/stores/auth'
 
 const { route, handleExploreClick } = useRouteUtils()
 const userStore = useUserStore()
+const economyStore = useEconomyStore()
 const notificationStore = useNotificationStore()
 const authStore = useAuthStore()
 
@@ -24,7 +29,7 @@ const menuItems = ref([
   { label: '发布', icon: 'publish', path: '/publish' },
   { label: '通知', icon: 'notification', path: '/notification' },
   { label: '游戏', icon: 'game', path: '/game' },
-  { label: '我', icon: 'avatar', path: '/user' },
+  { label: '', icon: 'avatar', path: '/user' },
   { label: '更多', icon: 'menu', path: '' },
 ]);
 
@@ -66,6 +71,9 @@ function handleAvatarError(event) {
 onMounted(() => {
   userStore.initUserInfo()
   if (userStore.isLoggedIn) {
+    // 获取当前用户装备数据
+    economyStore.fetchEquipped()
+    economyStore.fetchLevel()
     // 静默获取未读通知数量，不阻塞页面渲染
     notificationStore.fetchUnreadCount().catch(() => {
       // 忽略错误，避免影响用户体验
@@ -109,10 +117,23 @@ onMounted(() => {
         <RouterLink :to="menuItems[4].path" class="sidebar-link"
           :class="{ 'active-link': route.path === menuItems[4].path }">
           <span class="sidebar-icon">
-            <img :src="userStore.userInfo?.avatar || defaultAvatar" :alt="userStore.userInfo?.nickname || '用户头像'"
-              class="avatar-icon" @error="handleAvatarError" />
+            <UserAvatar
+              :avatar="userStore.userInfo?.avatar || defaultAvatar"
+              :nickname="userStore.userInfo?.nickname || ''"
+              :frameConfig="economyStore.equipped?.frame_config"
+              :accessoryConfig="economyStore.equipped?.accessory_config"
+              :level="economyStore.currentLevel"
+              size="sm"
+              class="sidebar-avatar"
+            />
           </span>
-          <span class="sidebar-label">{{ menuItems[4].label }}</span>
+          <span class="sidebar-label">
+            <UserName
+              :nickname="userStore.userInfo?.nickname || menuItems[4].label"
+              :styleConfig="economyStore.equipped?.name_style_config"
+              :level="economyStore.currentLevel"
+            />
+          </span>
         </RouterLink>
       </li>
 
