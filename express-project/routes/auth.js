@@ -8,6 +8,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { checkPermission } = require('../middleware/permission');
 const { getIPLocation, getRealIP } = require('../utils/ipLocation');
 const { sendEmailCode } = require('../utils/email');
+const { delCache } = require('../utils/redis');
 const svgCaptcha = require('svg-captcha');
 const path = require('path');
 const fs = require('fs');
@@ -735,23 +736,20 @@ router.post('/login', async (req, res) => {
 
     // 设置最严格的HttpOnly Cookie
     const isProduction = serverConfig.env === 'production';
-
-    // 设置最严格的HttpOnly Cookie
-    res.cookie('token', accessToken, {
+    const cookieOptions = {
       httpOnly: true,           // JavaScript无法访问
       secure: isProduction,     // 生产环境必须HTTPS
-      sameSite: 'strict',       // 严格防止CSRF
+      sameSite: 'lax',          // 统一使用lax，确保OAuth回调正常
       maxAge: 7 * 24 * 60 * 60 * 1000,  // 7天
       path: '/'
-    });
+    };
+
+    res.cookie('token', accessToken, cookieOptions);
 
     // Refresh Token Cookie（用于自动刷新）
     res.cookie('refresh_token', refreshToken, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'strict',
-      maxAge: 30 * 24 * 60 * 60 * 1000,  // 30天
-      path: '/'
+      ...cookieOptions,
+      maxAge: 30 * 24 * 60 * 60 * 1000  // 30天
     });
 
     res.json({
@@ -845,22 +843,20 @@ router.post('/logout', authenticateToken, async (req, res) => {
 
     console.log(`用户退出成功 - 用户ID: ${userId}`);
 
-    // 清除所有认证相关的Cookie（使用与设置时相同的选项）
+    // 清理Redis缓存
+    await delCache(`session:user:${token}`);
+
+    // 只清除用户自己的Cookie（使用与设置时相同的选项）
     const isProduction = serverConfig.env === 'production';
     const clearOptions = {
       path: '/',
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'lax'  // 与登录时一致，使用lax
+      sameSite: 'lax'
     };
 
-    // 清除所有可能存在的 Cookie
-    res.clearCookie('token', { path: '/' });
-    res.clearCookie('refresh_token', { path: '/' });
-    res.clearCookie('admin_token', { path: '/' });
-    res.clearCookie('admin_refresh_token', { path: '/' });
-    res.clearCookie('user_token', { path: '/' });
-    res.clearCookie('user_refresh_token', { path: '/' });
+    res.clearCookie('token', clearOptions);
+    res.clearCookie('refresh_token', clearOptions);
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,
@@ -1323,13 +1319,20 @@ router.post('/admin/logout', authenticateToken, async (req, res) => {
 
     console.log(`管理员退出成功 - 管理员ID: ${adminId}`);
 
-    // 清除所有可能存在的认证Cookie
-    res.clearCookie('admin_token', { path: '/' });
-    res.clearCookie('admin_refresh_token', { path: '/' });
-    res.clearCookie('token', { path: '/' });
-    res.clearCookie('refresh_token', { path: '/' });
-    res.clearCookie('user_token', { path: '/' });
-    res.clearCookie('user_refresh_token', { path: '/' });
+    // 清理Redis缓存
+    await delCache(`session:admin:${token}`);
+
+    // 只清除管理员自己的Cookie
+    const isProduction = serverConfig.env === 'production';
+    const clearOptions = {
+      path: '/',
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax'
+    };
+
+    res.clearCookie('admin_token', clearOptions);
+    res.clearCookie('admin_refresh_token', clearOptions);
 
     res.json({
       code: RESPONSE_CODES.SUCCESS,

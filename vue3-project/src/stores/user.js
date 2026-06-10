@@ -83,13 +83,19 @@ export const useUserStore = defineStore('user', () => {
     } catch (error) {
       console.error('退出登录失败:', error)
     } finally {
-      // 清除所有本地存储
+      // 清除用户本地存储
       userInfo.value = null
       localStorage.removeItem('userInfo')
       localStorage.removeItem('token')
       localStorage.removeItem('refresh_token')
       localStorage.removeItem('user_token')
       localStorage.removeItem('user_refresh_token')
+
+      // 同时清除管理员本地存储（避免状态混乱）
+      localStorage.removeItem('admin_info')
+      localStorage.removeItem('admin_permissions')
+      localStorage.removeItem('admin_token')
+      localStorage.removeItem('admin_refresh_token')
 
       // 重置未读通知数量
       try {

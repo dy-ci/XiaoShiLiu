@@ -99,7 +99,7 @@ export const useAdminStore = defineStore('admin', () => {
       // 调用后端登出接口 - 后端会清除HttpOnly Cookie
       const response = await adminApi.logout()
 
-      // 清除本地存储
+      // 清除管理员本地存储
       admin.value = null
       permissions.value = []
 
@@ -109,6 +109,11 @@ export const useAdminStore = defineStore('admin', () => {
       localStorage.removeItem('refresh_token')
       localStorage.removeItem('admin_token')
       localStorage.removeItem('admin_refresh_token')
+
+      // 同时清除用户本地存储（避免状态混乱）
+      localStorage.removeItem('userInfo')
+      localStorage.removeItem('user_token')
+      localStorage.removeItem('user_refresh_token')
 
       // 如果后端返回失败，记录错误但仍然完成本地清除
       if (!response.success) {
@@ -127,6 +132,10 @@ export const useAdminStore = defineStore('admin', () => {
       localStorage.removeItem('refresh_token')
       localStorage.removeItem('admin_token')
       localStorage.removeItem('admin_refresh_token')
+      // 同时清除用户本地存储
+      localStorage.removeItem('userInfo')
+      localStorage.removeItem('user_token')
+      localStorage.removeItem('user_refresh_token')
       return { success: false, message: error.message }
     }
   }

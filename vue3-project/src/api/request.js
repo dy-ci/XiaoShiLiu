@@ -69,15 +69,25 @@ request.interceptors.response.use(
             isHandling401 = true
             hasHandled401 = true // 标记已处理
             
-            // 【关键修复】立即清除本地存储的用户信息，防止页面重新加载后再次触发认证请求
-            localStorage.removeItem('userInfo')
-            localStorage.removeItem('token')
-            localStorage.removeItem('refresh_token')
-            localStorage.removeItem('user_token')
-            localStorage.removeItem('user_refresh_token')
-            
             // 判断是管理员还是普通用户页面
             const isAdminPage = window.location.pathname.startsWith('/admin')
+            
+            if (isAdminPage) {
+              // 管理员页面401 - 清除管理员相关localStorage
+              localStorage.removeItem('admin_info')
+              localStorage.removeItem('admin_permissions')
+              localStorage.removeItem('admin_token')
+              localStorage.removeItem('admin_refresh_token')
+              console.log('401: 清除管理员本地状态')
+            } else {
+              // 普通用户页面401 - 清除用户相关localStorage
+              localStorage.removeItem('userInfo')
+              localStorage.removeItem('token')
+              localStorage.removeItem('refresh_token')
+              localStorage.removeItem('user_token')
+              localStorage.removeItem('user_refresh_token')
+              console.log('401: 清除用户本地状态')
+            }
             
             // 延迟执行跳转，给当前操作完成的时间
             setTimeout(() => {
