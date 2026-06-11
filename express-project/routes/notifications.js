@@ -292,7 +292,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     // 获取未读数量
     const unreadResult = await db('notifications')
-      .where({ user_id: userId, is_read: 0 })
+      .where({ user_id: userId, is_read: false })
       .count('* as unread')
       .first();
 
@@ -324,8 +324,8 @@ router.put('/read-all', authenticateToken, async (req, res) => {
 
     // 标记所有通知为已读
     await db('notifications')
-      .where({ user_id: userId, is_read: 0 })
-      .update({ is_read: 1 });
+      .where({ user_id: userId, is_read: false })
+      .update({ is_read: true });
 
     res.json({ code: RESPONSE_CODES.SUCCESS, message: '全部标记成功' });
   } catch (error) {
@@ -353,7 +353,7 @@ router.put('/:id/read', authenticateToken, async (req, res) => {
     // 标记为已读
     await db('notifications')
       .where({ id: notificationId })
-      .update({ is_read: 1 });
+      .update({ is_read: true });
 
     res.json({ code: RESPONSE_CODES.SUCCESS, message: '标记成功' });
   } catch (error) {
@@ -393,7 +393,7 @@ router.get('/unread-count-by-type', authenticateToken, async (req, res) => {
 
     // 按类型统计未读通知数量
     const result = await db('notifications')
-      .where({ user_id: userId, is_read: 0 })
+      .where({ user_id: userId, is_read: false })
       .select(
         db.raw("SUM(CASE WHEN type IN (4, 5, 7, 8) THEN 1 ELSE 0 END) as comments"),
         db.raw("SUM(CASE WHEN type IN (1, 2) THEN 1 ELSE 0 END) as likes"),
@@ -444,7 +444,7 @@ router.get('/unread-count', authenticateToken, async (req, res) => {
     }
 
     const result = await db('notifications')
-      .where({ user_id: userId, is_read: 0 })
+      .where({ user_id: userId, is_read: false })
       .count('* as count')
       .first();
 

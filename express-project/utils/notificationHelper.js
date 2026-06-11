@@ -119,7 +119,7 @@ class NotificationHelper {
       title: this.getRandomTitle(type),
       target_id: targetId,
       comment_id: commentId,
-      is_read: isRead ? 1 : 0
+      is_read: isRead ? true : false
     };
   }
 
