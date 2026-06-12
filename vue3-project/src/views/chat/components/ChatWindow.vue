@@ -5,6 +5,8 @@ import ChatInput from './ChatInput.vue'
 import UserDisplay from '@/components/user/UserDisplay.vue'
 import { useChatStore } from '@/stores/chat.js'
 import { useUserStore } from '@/stores/user.js'
+import { chatApi } from '@/api/chat.js'
+import { userApi } from '@/api/index.js'
 
 const chatStore = useChatStore()
 const userStore = useUserStore()
@@ -16,10 +18,97 @@ const replyToMessage = ref(null)
 const editingMessage = ref(null)
 const editContent = ref('')
 const showEditModal = ref(false)
+const showSettingsPanel = ref(false)
 
 // 统一右键菜单
 const contextMenu = ref({ show: false, message: null, x: 0, y: 0 })
 let menuJustOpened = false
+
+// 好友系统
+const showFriendRequests = ref(false)
+const friendRequests = ref([])
+const friendRequestCount = ref(0)
+const addFriendId = ref('')
+const friendSearchResult = ref(null)
+
+// 加载好友申请
+async function loadFriendRequests() {
+  try {
+    const res = await chatApi.getFriendRequests()
+    if (res.success) {
+      friendRequests.value = res.data.requests || []
+      friendRequestCount.value = friendRequests.value.length
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+// 搜索用户
+async function searchFriendUser() {
+  if (!addFriendId.value.trim()) return
+  try {
+    const res = await userApi.searchUsers(addFriendId.value.trim(), { limit: 5 })
+    if (res.success && res.data?.users?.length > 0) {
+      const user = res.data.users.find(u => String(u.id) !== String(userStore.userInfo?.id))
+      if (user) {
+        // 检查好友关系
+        const friendRes = await chatApi.checkFriend(user.id)
+        const isFriend = friendRes.success && friendRes.data?.is_friend
+        friendSearchResult.value = {
+          ...user,
+          _status: isFriend ? 'friend' : 'none'
+        }
+      } else {
+        friendSearchResult.value = null
+      }
+    } else {
+      friendSearchResult.value = null
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+// 发送好友申请
+async function sendFriendRequest(userId) {
+  try {
+    const res = await chatApi.sendFriendRequest(userId)
+    if (res.success) {
+      if (friendSearchResult.value) {
+        friendSearchResult.value._status = 'pending'
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+// 接受好友申请
+async function acceptFriendRequest(requestId) {
+  try {
+    const res = await chatApi.acceptFriendRequest(requestId)
+    if (res.success) {
+      friendRequests.value = friendRequests.value.filter(r => r.id !== requestId)
+      friendRequestCount.value = friendRequests.value.length
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+// 拒绝好友申请
+async function rejectFriendRequest(requestId) {
+  try {
+    const res = await chatApi.rejectFriendRequest(requestId)
+    if (res.success) {
+      friendRequests.value = friendRequests.value.filter(r => r.id !== requestId)
+      friendRequestCount.value = friendRequests.value.length
+    }
+  } catch (e) {
+    // ignore
+  }
+}
 
 // 当前用户 ID
 const currentUserId = computed(() => userStore.userInfo?.id)
@@ -113,6 +202,7 @@ function handleScroll() {
 
 onMounted(() => {
   scrollToBottom()
+  loadFriendRequests()
 })
 
 // 判断消息是否为自己发送
@@ -297,6 +387,13 @@ function formatDividerTime(timestamp) {
         <span class="status-dot" :class="{ 'status-dot--online': chatStore.wsConnected }"></span>
         <span class="status-text">{{ statusText }}</span>
       </div>
+
+      <button class="header-settings-btn" @click="showSettingsPanel = !showSettingsPanel" title="设置">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </button>
     </div>
 
     <!-- 消息区域 -->
@@ -354,6 +451,68 @@ function formatDividerTime(timestamp) {
         <div class="edit-actions">
           <button class="edit-btn edit-btn--cancel" @click="cancelEdit">取消</button>
           <button class="edit-btn edit-btn--confirm" @click="confirmEdit">确认</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置面板 -->
+    <div v-if="showSettingsPanel" class="settings-overlay" @click="showSettingsPanel = false">
+      <div class="settings-panel" @click.stop>
+        <div class="settings-header">
+          <h3>聊天设置</h3>
+          <button class="settings-close-btn" @click="showSettingsPanel = false">&times;</button>
+        </div>
+        <div class="settings-body">
+          <div class="settings-section">
+            <div class="settings-label">好友申请</div>
+            <button class="settings-action-btn" @click="showFriendRequests = true">
+              查看好友申请
+              <span v-if="friendRequestCount > 0" class="badge">{{ friendRequestCount }}</span>
+            </button>
+          </div>
+          <div class="settings-section">
+            <div class="settings-label">添加好友</div>
+            <div class="add-friend-row">
+              <input
+                v-model="addFriendId"
+                class="add-friend-input"
+                placeholder="输入用户昵称搜索"
+                @keyup.enter="searchFriendUser"
+              />
+              <button class="add-friend-btn" @click="searchFriendUser" :disabled="!addFriendId.trim()">搜索</button>
+            </div>
+            <div v-if="friendSearchResult" class="friend-search-result">
+              <div class="friend-search-item">
+                <span>{{ friendSearchResult.nickname }}</span>
+                <button
+                  class="friend-action-btn"
+                  :disabled="friendSearchResult._status !== 'none'"
+                  @click="sendFriendRequest(friendSearchResult.id)"
+                >
+                  {{ friendSearchResult._status === 'none' ? '添加好友' : friendSearchResult._status === 'pending' ? '已申请' : '已是好友' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 好友申请列表 -->
+        <div v-if="showFriendRequests" class="friend-requests-panel">
+          <div class="settings-header">
+            <h3>好友申请</h3>
+            <button class="settings-close-btn" @click="showFriendRequests = false">&times;</button>
+          </div>
+          <div v-if="friendRequests.length === 0" class="empty-requests">暂无好友申请</div>
+          <div v-for="req in friendRequests" :key="req.id" class="friend-request-item">
+            <div class="request-info">
+              <span class="request-name">{{ req.from_nickname }}</span>
+              <span v-if="req.message" class="request-message">{{ req.message }}</span>
+            </div>
+            <div class="request-actions">
+              <button class="accept-btn" @click="acceptFriendRequest(req.id)">接受</button>
+              <button class="reject-btn" @click="rejectFriendRequest(req.id)">拒绝</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -604,5 +763,265 @@ function formatDividerTime(timestamp) {
 
 .message-context-menu .menu-item--danger:hover {
   background: rgba(244, 33, 46, 0.1);
+}
+
+/* 设置按钮 */
+.header-settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-color-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.header-settings-btn:hover {
+  background: var(--bg-color-secondary);
+  color: var(--text-color-primary);
+}
+
+/* 设置面板 */
+.settings-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 20;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 60px 16px 16px;
+}
+
+.settings-panel {
+  background: var(--bg-color-primary);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px var(--shadow-color);
+  width: 300px;
+  max-height: 80%;
+  overflow-y: auto;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color-primary);
+}
+
+.settings-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings-close-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  color: var(--text-color-secondary);
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-close-btn:hover {
+  background: var(--bg-color-secondary);
+}
+
+.settings-body {
+  padding: 12px 16px;
+}
+
+.settings-section {
+  margin-bottom: 16px;
+}
+
+.settings-label {
+  font-size: 12px;
+  color: var(--text-color-tertiary);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.settings-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 8px;
+  background: var(--bg-color-secondary);
+  color: var(--text-color-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+}
+
+.settings-action-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger-color);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.add-friend-row {
+  display: flex;
+  gap: 8px;
+}
+
+.add-friend-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 8px;
+  background: var(--bg-color-secondary);
+  color: var(--text-color-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.add-friend-input:focus {
+  border-color: var(--primary-color);
+}
+
+.add-friend-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary-color);
+  color: var(--text-color-inverse);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.add-friend-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.friend-search-result {
+  margin-top: 8px;
+}
+
+.friend-search-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--bg-color-secondary);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.friend-action-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--primary-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--primary-color);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.friend-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-color: var(--text-color-quaternary);
+  color: var(--text-color-quaternary);
+}
+
+/* 好友申请列表 */
+.friend-requests-panel {
+  border-top: 1px solid var(--border-color-primary);
+}
+
+.empty-requests {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-color-tertiary);
+  font-size: 13px;
+}
+
+.friend-request-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-color-primary);
+}
+
+.friend-request-item:last-child {
+  border-bottom: none;
+}
+
+.request-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.request-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.request-message {
+  font-size: 12px;
+  color: var(--text-color-tertiary);
+}
+
+.request-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.accept-btn {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary-color);
+  color: var(--text-color-inverse);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.reject-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color-secondary);
+  font-size: 12px;
+  cursor: pointer;
 }
 </style>

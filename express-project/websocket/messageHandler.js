@@ -44,6 +44,10 @@ async function handleMessage(ws, userId, message) {
       case 'typing':
         await handleTyping(ws, userId, message);
         break;
+      case 'add_reaction':
+      case 'toggle_reaction':
+        await handleToggleReaction(ws, userId, message);
+        break;
       default:
         ws.send(JSON.stringify({ type: 'error', message: `未知的事件类型: ${message.type}` }));
     }
@@ -432,6 +436,68 @@ async function triggerEconomyTask(db, userId, action) {
     // 经济任务触发失败不影响消息发送
     console.error('[MessageHandler] 触发经济任务失败:', err.message);
   }
+}
+
+/**
+ * 处理表情回应（toggle：有则删除，无则添加）
+ */
+async function handleToggleReaction(ws, userId, message) {
+  const { message_id, emoji } = message.data || message;
+
+  if (!message_id || !emoji) {
+    ws.send(JSON.stringify({ type: 'error', message: '缺少必要参数' }));
+    return;
+  }
+
+  const db = getDB();
+
+  // 验证消息存在
+  const msg = await db('messages').where({ id: message_id }).first();
+  if (!msg) {
+    ws.send(JSON.stringify({ type: 'error', message: '消息不存在' }));
+    return;
+  }
+
+  // 检查是否已有该表情
+  const existing = await db('message_reactions')
+    .where({ message_id, user_id: userId, emoji })
+    .first();
+
+  let action;
+  if (existing) {
+    await db('message_reactions').where({ id: existing.id }).del();
+    action = 'removed';
+  } else {
+    await db('message_reactions').insert({ message_id, user_id: userId, emoji });
+    action = 'added';
+  }
+
+  // 获取该消息的所有表情回应统计
+  const reactions = await db('message_reactions')
+    .where({ message_id })
+    .select('emoji')
+    .count('id as count')
+    .groupBy('emoji');
+
+  const reactionSummary = reactions.map(r => ({
+    emoji: r.emoji,
+    count: parseInt(r.count)
+  }));
+
+  // 推送给会话所有成员
+  const pushData = {
+    type: 'reaction_updated',
+    data: {
+      message_id,
+      conversation_id: msg.conversation_id,
+      user_id: userId,
+      emoji,
+      action,
+      reactions: reactionSummary
+    }
+  };
+
+  await broadcastToConversation(db, msg.conversation_id, pushData);
 }
 
 module.exports = {

@@ -77,6 +77,38 @@ export const chatApi = {
   // 切换会话静音状态
   toggleMute(conversationId) {
     return request.put(`/chat/conversations/${conversationId}/mute`)
+  },
+
+  // ========== 好友系统 ==========
+
+  // 获取好友列表
+  getFriends() {
+    return request.get('/chat/friends')
+  },
+
+  // 发送好友申请
+  sendFriendRequest(toUserId, message = '') {
+    return request.post('/chat/friends/request', { to_user_id: toUserId, message })
+  },
+
+  // 获取好友申请列表
+  getFriendRequests() {
+    return request.get('/chat/friends/requests')
+  },
+
+  // 接受好友申请
+  acceptFriendRequest(requestId) {
+    return request.post(`/chat/friends/requests/${requestId}/accept`)
+  },
+
+  // 拒绝好友申请
+  rejectFriendRequest(requestId) {
+    return request.post(`/chat/friends/requests/${requestId}/reject`)
+  },
+
+  // 检查是否是好友
+  checkFriend(userId) {
+    return request.get(`/chat/friends/check/${userId}`)
   }
 }
 

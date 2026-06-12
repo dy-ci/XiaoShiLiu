@@ -177,6 +177,14 @@ router.get('/conversations/with/:userId', authenticateToken, async (req, res) =>
       return responseHelper.error(res, '不能与自己创建私聊会话', RESPONSE_CODES.VALIDATION_ERROR, HTTP_STATUS.BAD_REQUEST);
     }
 
+    // 检查是否是好友（需要是好友才能私聊）
+    const isFriend = await db('friends')
+      .where({ user_id: currentUserId, friend_id: targetUserId })
+      .first();
+    if (!isFriend) {
+      return responseHelper.error(res, '需要先添加好友才能聊天', RESPONSE_CODES.FORBIDDEN, HTTP_STATUS.FORBIDDEN);
+    }
+
     // 查找是否已存在两人之间的私聊会话
     const existingConversation = await db({ cm1: 'conversation_members' })
       .join({ cm2: 'conversation_members' }, function () {
@@ -626,6 +634,31 @@ router.get('/conversations/:id/messages', authenticateToken, async (req, res) =>
       }
     }));
 
+    // 批量查询消息的表情回应
+    const messageIds = formattedMessages.map(m => m.id);
+    let messageReactions = {};
+    if (messageIds.length > 0) {
+      const reactions = await db('message_reactions')
+        .whereIn('message_id', messageIds)
+        .select('message_id', 'emoji')
+        .count('id as count')
+        .groupBy('message_id', 'emoji');
+      for (const r of reactions) {
+        if (!messageReactions[r.message_id]) {
+          messageReactions[r.message_id] = [];
+        }
+        messageReactions[r.message_id].push({
+          emoji: r.emoji,
+          count: parseInt(r.count)
+        });
+      }
+    }
+
+    // 将 reactions 附加到消息上
+    for (const msg of formattedMessages) {
+      msg.reactions = messageReactions[msg.id] || [];
+    }
+
     // 计算下一页游标
     let nextCursor = null;
     if (formattedMessages.length > 0) {
@@ -1045,6 +1078,231 @@ router.put('/conversations/:id/mute', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('切换免打扰失败:', error);
     responseHelper.handleError(error, res, '切换免打扰');
+  }
+});
+
+// 添加/删除消息表情回应
+router.post('/messages/:id/reactions', authenticateToken, async (req, res) => {
+  try {
+    const db = getDB();
+    const userId = req.user.id;
+    const messageId = req.params.id;
+    const { emoji } = req.body;
+
+    if (!emoji || emoji.length > 32) {
+      return responseHelper.error(res, '无效的表情', RESPONSE_CODES.BAD_REQUEST, HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // 验证消息存在
+    const message = await db('messages').where({ id: messageId }).first();
+    if (!message) {
+      return responseHelper.error(res, '消息不存在', RESPONSE_CODES.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
+
+    // 验证用户是该会话成员
+    const member = await db('conversation_members')
+      .where({ conversation_id: message.conversation_id, user_id: userId })
+      .first();
+    if (!member) {
+      return responseHelper.error(res, '无权操作', RESPONSE_CODES.FORBIDDEN, HTTP_STATUS.FORBIDDEN);
+    }
+
+    // 检查是否已有该表情回应
+    const existing = await db('message_reactions')
+      .where({ message_id: messageId, user_id: userId, emoji })
+      .first();
+
+    if (existing) {
+      // 已存在则删除（toggle）
+      await db('message_reactions').where({ id: existing.id }).del();
+      responseHelper.success(res, { action: 'removed', emoji });
+    } else {
+      // 不存在则添加
+      await db('message_reactions').insert({
+        message_id: messageId,
+        user_id: userId,
+        emoji
+      });
+      responseHelper.success(res, { action: 'added', emoji });
+    }
+  } catch (error) {
+    console.error('表情回应操作失败:', error);
+    responseHelper.handleError(error, res, '表情回应操作');
+  }
+});
+
+// ========== 好友系统 ==========
+
+// 获取好友列表
+router.get('/friends', authenticateToken, async (req, res) => {
+  try {
+    const db = getDB();
+    const userId = req.user.id;
+
+    const friends = await db('friends')
+      .where({ user_id: userId })
+      .join('users', 'friends.friend_id', 'users.id')
+      .select('users.id', 'users.nickname', 'users.avatar', 'friends.created_at as friend_since');
+
+    responseHelper.success(res, { friends });
+  } catch (error) {
+    console.error('获取好友列表失败:', error);
+    responseHelper.handleError(error, res, '获取好友列表');
+  }
+});
+
+// 发送好友申请
+router.post('/friends/request', authenticateToken, async (req, res) => {
+  try {
+    const db = getDB();
+    const userId = req.user.id;
+    const { to_user_id, message } = req.body;
+
+    if (!to_user_id) {
+      return responseHelper.error(res, '缺少目标用户', RESPONSE_CODES.BAD_REQUEST, HTTP_STATUS.BAD_REQUEST);
+    }
+
+    if (String(userId) === String(to_user_id)) {
+      return responseHelper.error(res, '不能添加自己为好友', RESPONSE_CODES.BAD_REQUEST, HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // 验证目标用户存在
+    const targetUser = await db('users').where({ id: to_user_id }).first();
+    if (!targetUser) {
+      return responseHelper.error(res, '用户不存在', RESPONSE_CODES.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
+
+    // 检查是否已是好友
+    const existingFriend = await db('friends')
+      .where({ user_id: userId, friend_id: to_user_id })
+      .first();
+    if (existingFriend) {
+      return responseHelper.error(res, '已经是好友了', RESPONSE_CODES.BAD_REQUEST, HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // 检查是否已有待处理的申请（任一方向）
+    const existingRequest = await db('friend_requests')
+      .where(function () {
+        this.where({ from_user_id: userId, to_user_id })
+          .orWhere({ from_user_id: to_user_id, to_user_id: userId });
+      })
+      .where({ status: 'pending' })
+      .first();
+    if (existingRequest) {
+      return responseHelper.error(res, '已有待处理的好友申请', RESPONSE_CODES.BAD_REQUEST, HTTP_STATUS.BAD_REQUEST);
+    }
+
+    // 创建申请
+    await db('friend_requests').insert({
+      from_user_id: userId,
+      to_user_id,
+      message: message || '',
+      status: 'pending'
+    });
+
+    responseHelper.success(res, { message: '好友申请已发送' });
+  } catch (error) {
+    console.error('发送好友申请失败:', error);
+    responseHelper.handleError(error, res, '发送好友申请');
+  }
+});
+
+// 获取收到的好友申请
+router.get('/friends/requests', authenticateToken, async (req, res) => {
+  try {
+    const db = getDB();
+    const userId = req.user.id;
+
+    const requests = await db('friend_requests')
+      .where({ to_user_id: userId, status: 'pending' })
+      .join('users', 'friend_requests.from_user_id', 'users.id')
+      .select(
+        'friend_requests.id',
+        'friend_requests.from_user_id',
+        'friend_requests.message',
+        'friend_requests.created_at',
+        'users.nickname as from_nickname',
+        'users.avatar as from_avatar'
+      )
+      .orderBy('friend_requests.created_at', 'desc');
+
+    responseHelper.success(res, { requests });
+  } catch (error) {
+    console.error('获取好友申请失败:', error);
+    responseHelper.handleError(error, res, '获取好友申请');
+  }
+});
+
+// 接受好友申请
+router.post('/friends/requests/:id/accept', authenticateToken, async (req, res) => {
+  try {
+    const db = getDB();
+    const userId = req.user.id;
+    const requestId = req.params.id;
+
+    const request = await db('friend_requests').where({ id: requestId, to_user_id: userId, status: 'pending' }).first();
+    if (!request) {
+      return responseHelper.error(res, '申请不存在或已处理', RESPONSE_CODES.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
+
+    // 更新申请状态
+    await db('friend_requests').where({ id: requestId }).update({
+      status: 'accepted',
+      handled_at: db.fn.now()
+    });
+
+    // 创建双向好友关系
+    await db('friends').insert([
+      { user_id: request.from_user_id, friend_id: userId },
+      { user_id: userId, friend_id: request.from_user_id }
+    ]).onConflict(['user_id', 'friend_id']).ignore();
+
+    responseHelper.success(res, { message: '已接受好友申请' });
+  } catch (error) {
+    console.error('接受好友申请失败:', error);
+    responseHelper.handleError(error, res, '接受好友申请');
+  }
+});
+
+// 拒绝好友申请
+router.post('/friends/requests/:id/reject', authenticateToken, async (req, res) => {
+  try {
+    const db = getDB();
+    const userId = req.user.id;
+    const requestId = req.params.id;
+
+    const request = await db('friend_requests').where({ id: requestId, to_user_id: userId, status: 'pending' }).first();
+    if (!request) {
+      return responseHelper.error(res, '申请不存在或已处理', RESPONSE_CODES.NOT_FOUND, HTTP_STATUS.NOT_FOUND);
+    }
+
+    await db('friend_requests').where({ id: requestId }).update({
+      status: 'rejected',
+      handled_at: db.fn.now()
+    });
+
+    responseHelper.success(res, { message: '已拒绝好友申请' });
+  } catch (error) {
+    console.error('拒绝好友申请失败:', error);
+    responseHelper.handleError(error, res, '拒绝好友申请');
+  }
+});
+
+// 检查是否是好友
+router.get('/friends/check/:userId', authenticateToken, async (req, res) => {
+  try {
+    const db = getDB();
+    const userId = req.user.id;
+    const targetId = req.params.userId;
+
+    const isFriend = await db('friends')
+      .where({ user_id: userId, friend_id: targetId })
+      .first();
+
+    responseHelper.success(res, { is_friend: !!isFriend });
+  } catch (error) {
+    console.error('检查好友关系失败:', error);
+    responseHelper.handleError(error, res, '检查好友关系');
   }
 });
 

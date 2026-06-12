@@ -5,6 +5,7 @@ import UserName from '@/components/user/UserName.vue'
 import { userApi } from '@/api/index.js'
 import { useChatStore } from '@/stores/chat.js'
 import { useUserStore } from '@/stores/user.js'
+import { chatApi } from '@/api/chat.js'
 
 const props = defineProps({
   visible: {
@@ -29,17 +30,28 @@ const createMode = ref('private') // 'private' | 'group'
 // 是否显示群聊设置
 const showGroupSettings = computed(() => createMode.value === 'group' && selectedUsers.value.length > 0)
 
+// 好友列表缓存
+const friendsList = ref([])
+
 // 监听弹窗显示
-watch(() => props.visible, (val) => {
+watch(() => props.visible, async (val) => {
   if (val) {
     resetForm()
+    try {
+      const res = await chatApi.getFriends()
+      if (res.success && res.data) {
+        friendsList.value = res.data.friends || []
+      }
+    } catch (e) {
+      // ignore
+    }
   }
 })
 
 const searchError = ref('')
 const createError = ref('')
 
-// 搜索用户
+// 搜索用户（从好友列表中搜索）
 async function handleSearch() {
   const keyword = searchKeyword.value.trim()
   if (!keyword) {
@@ -50,27 +62,13 @@ async function handleSearch() {
 
   isSearching.value = true
   searchError.value = ''
-  try {
-    const response = await userApi.searchUsers(keyword, { limit: 20 })
-    if (response.success && response.data) {
-      // 过滤掉当前用户
-      const users = (response.data.users || []).filter(
-        u => String(u.id) !== String(userStore.userInfo?.id)
-      )
-      searchResults.value = users
-      if (users.length === 0 && keyword) {
-        searchError.value = ''
-      }
-    } else {
-      searchError.value = response.message || '搜索失败'
-    }
-  } catch (error) {
-    console.error('搜索用户失败:', error)
-    searchError.value = error.message || '搜索请求失败'
-    searchResults.value = []
-  } finally {
-    isSearching.value = false
-  }
+
+  // 从好友列表中过滤
+  const filtered = friendsList.value.filter(f =>
+    f.nickname?.toLowerCase().includes(keyword.toLowerCase())
+  )
+  searchResults.value = filtered
+  isSearching.value = false
 }
 
 // 防抖搜索
@@ -239,7 +237,7 @@ function switchMode(mode) {
       <div class="results-section">
         <div v-if="isSearching" class="search-status">搜索中...</div>
         <div v-else-if="searchError" class="search-status search-status--error">{{ searchError }}</div>
-        <div v-else-if="searchKeyword && searchResults.length === 0" class="search-status">未找到用户</div>
+        <div v-else-if="searchKeyword && searchResults.length === 0" class="search-status">未找到好友，请先在设置中添加好友</div>
 
         <div v-for="user in searchResults" :key="user.id" class="user-item" @click="toggleSelect(user)">
           <UserDisplay

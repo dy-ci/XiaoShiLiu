@@ -11,6 +11,7 @@ const WS_MESSAGE_TYPES = {
   RECALL: 'recall',
   EDIT: 'edit',
   SYSTEM: 'system',
+  REACTION: 'reaction_updated',
   PONG: 'pong',
   ERROR: 'error'
 }
@@ -272,6 +273,11 @@ export const useChatStore = defineStore('chat', () => {
         handleSystemMessage(data)
         break
 
+      case WS_MESSAGE_TYPES.REACTION:
+      case 'reaction_updated':
+        handleReactionUpdated(data)
+        break
+
       case WS_MESSAGE_TYPES.ERROR:
       case 'error':
         console.error('WebSocket 错误消息:', data.message)
@@ -381,6 +387,43 @@ export const useChatStore = defineStore('chat', () => {
         created_at: new Date().toISOString()
       })
     }
+  }
+
+  // 处理表情回应更新
+  function handleReactionUpdated(data) {
+    const rd = data.data || data
+    const messageId = rd.message_id
+    if (!messageId) return
+
+    const msg = messages.value.find(m => String(m.id) === String(messageId))
+    if (msg) {
+      msg.reactions = rd.reactions || []
+    }
+  }
+
+  // 切换表情回应（WebSocket）
+  function toggleReaction(messageId, emoji) {
+    if (!wsConnection.value || wsConnection.value.readyState !== WebSocket.OPEN) return
+
+    // 乐观更新：立即在本地更新
+    const msg = messages.value.find(m => String(m.id) === String(messageId))
+    if (msg) {
+      if (!msg.reactions) msg.reactions = []
+      const existing = msg.reactions.find(r => r.emoji === emoji)
+      if (existing) {
+        existing.count--
+        if (existing.count <= 0) {
+          msg.reactions = msg.reactions.filter(r => r.emoji !== emoji)
+        }
+      } else {
+        msg.reactions.push({ emoji, count: 1 })
+      }
+    }
+
+    wsConnection.value.send(JSON.stringify({
+      type: 'toggle_reaction',
+      data: { message_id: messageId, emoji }
+    }))
   }
 
   // ========== HTTP API 操作 ==========
@@ -634,6 +677,7 @@ export const useChatStore = defineStore('chat', () => {
     sendTyping,
     editMessage,
     recallMessage,
+    toggleReaction,
     loadConversations,
     loadMessages,
     loadMoreMessages,

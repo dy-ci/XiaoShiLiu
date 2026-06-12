@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
 import UserName from '@/components/user/UserName.vue'
 import { useUserStore } from '@/stores/user.js'
+import { useChatStore } from '@/stores/chat.js'
 
 const props = defineProps({
   message: {
@@ -22,6 +23,11 @@ const props = defineProps({
 const emit = defineEmits(['reply', 'edit', 'recall', 'contextmenu'])
 
 const userStore = useUserStore()
+const chatStore = useChatStore()
+
+// 表情回应选择器
+const showReactionPicker = ref(false)
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '😡', '🙏']
 
 // 消息类型判断
 const isSystem = computed(() => props.message.type === 'system')
@@ -35,6 +41,9 @@ const sender = computed(() => props.message.sender || {})
 
 // 引用回复
 const replyTo = computed(() => props.message.reply_to)
+
+// 表情回应列表
+const reactions = computed(() => props.message.reactions || [])
 
 // 格式化时间
 function formatTime(timestamp) {
@@ -85,6 +94,21 @@ function handleTouchEnd() {
     clearTimeout(longPressTimer)
     longPressTimer = null
   }
+}
+
+// 表情回应
+function toggleReactionPicker(event) {
+  event.stopPropagation()
+  showReactionPicker.value = !showReactionPicker.value
+}
+
+function handleReaction(emoji) {
+  chatStore.toggleReaction(props.message.id, emoji)
+  showReactionPicker.value = false
+}
+
+function hideReactionPicker() {
+  showReactionPicker.value = false
 }
 </script>
 
@@ -154,6 +178,37 @@ function handleTouchEnd() {
 
         <!-- 已编辑标记 -->
         <span v-if="isEdited && !isRecalled" class="edited-mark">(已编辑)</span>
+      </div>
+
+      <!-- 表情回应区域 -->
+      <div class="reactions-row" :class="{ 'reactions-row--self': isSelf }">
+        <div
+          v-for="r in reactions"
+          :key="r.emoji"
+          class="reaction-chip"
+          :class="{ 'reaction-chip--active': true }"
+          @click="handleReaction(r.emoji)"
+        >
+          <span class="reaction-emoji">{{ r.emoji }}</span>
+          <span v-if="r.count > 1" class="reaction-count">{{ r.count }}</span>
+        </div>
+        <!-- 添加回应按钮 -->
+        <button class="reaction-add-btn" @click="toggleReactionPicker" title="添加表情回应">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="16"/>
+            <line x1="8" y1="12" x2="16" y2="12"/>
+          </svg>
+        </button>
+        <!-- 表情选择器 -->
+        <div v-if="showReactionPicker" class="reaction-picker">
+          <button
+            v-for="emoji in REACTION_EMOJIS"
+            :key="emoji"
+            class="reaction-picker-item"
+            @click="handleReaction(emoji)"
+          >{{ emoji }}</button>
+        </div>
       </div>
 
       <!-- 时间 -->
@@ -301,6 +356,116 @@ function handleTouchEnd() {
   margin-left: 4px;
 }
 
+/* 表情回应 */
+.reactions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+  align-items: center;
+  position: relative;
+}
+
+.reactions-row--self {
+  justify-content: flex-end;
+}
+
+.reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border-radius: 12px;
+  background: var(--bg-color-secondary);
+  border: 1px solid var(--border-color-primary);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.reaction-chip:hover {
+  background: var(--bg-color-tertiary);
+  border-color: var(--primary-color);
+}
+
+.reaction-chip--active {
+  border-color: var(--primary-color-light, var(--primary-color));
+  background: rgba(var(--primary-color-rgb, 0, 0, 0), 0.06);
+}
+
+.reaction-emoji {
+  font-size: 14px;
+}
+
+.reaction-count {
+  font-size: 11px;
+  color: var(--text-color-secondary);
+  min-width: 8px;
+  text-align: center;
+}
+
+.reaction-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px dashed var(--border-color-secondary);
+  background: transparent;
+  color: var(--text-color-quaternary);
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+}
+
+.reaction-add-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.reaction-picker {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--bg-color-primary);
+  border: 1px solid var(--border-color-secondary);
+  border-radius: 20px;
+  box-shadow: 0 2px 12px var(--shadow-color);
+  z-index: 10;
+  margin-bottom: 4px;
+}
+
+.reactions-row--self .reaction-picker {
+  left: auto;
+  right: 0;
+}
+
+.reaction-picker-item {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.15s;
+  padding: 0;
+}
+
+.reaction-picker-item:hover {
+  background: var(--bg-color-secondary);
+}
+
 .bubble-time {
   font-size: 11px;
   color: var(--text-color-quaternary);
@@ -311,6 +476,4 @@ function handleTouchEnd() {
 .bubble-time--self {
   align-self: flex-end;
 }
-
-/* 右键菜单 */
 </style>
