@@ -37,7 +37,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ (matrix.os == 'ios-aarch64' && 'aarch64-apple-ios') || (matrix.os == 'android-arm64' && 'aarch64-linux-android') || '' }}
+          targets: ${{ (matrix.os == 'darwin-aarch64' && 'aarch64-apple-darwin') || (matrix.os == 'linux-x86_64-gnu' && 'x86_64-unknown-linux-gnu') || (matrix.os == 'windows-x86_64' && 'x86_64-pc-windows-msvc') || (matrix.os == 'ios-aarch64' && 'aarch64-apple-ios') || (matrix.os == 'android-arm64' && 'aarch64-linux-android') || '' }}
 
       # 安装系统依赖（Linux 需要 GTK/WebKit 等库）
       - name: Install system dependencies (Linux)
