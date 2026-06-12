@@ -167,7 +167,7 @@ jobs:
         working-directory: vue3-project
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.11902837
-        run: npm run tauri android build -- --target aarch64-linux-android
+        run: npm run tauri android build -- --target aarch64
 
       - name: List build outputs
         shell: bash
@@ -234,7 +234,7 @@ jobs:
 
       - name: Build iOS App
         working-directory: vue3-project
-        run: npm run tauri ios build --target aarch64-apple-ios
+        run: npx tauri ios build --target aarch64-apple-ios
 
       - name: List build outputs
         shell: bash
