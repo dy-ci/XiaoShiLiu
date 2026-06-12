@@ -130,7 +130,7 @@ jobs:
         with:
           name: dynamic-${{ matrix.os }}-${{ github.sha }}
           path: |
-            vue3-project/src-tauri/target/${{ matrix.os }}/release/bundle/*.{dmg,app,deb,AppImage,msi,exe,nupkg,aab,apk,ipa}
+            vue3-project/src-tauri/target/${{ matrix.os }}/release/bundle/**/*.{dmg,app,deb,AppImage,msi,exe,nupkg,aab,apk,ipa}
           if-no-files-found: warn
           retention-days: 30
 

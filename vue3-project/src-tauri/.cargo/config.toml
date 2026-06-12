@@ -7,3 +7,7 @@ registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
 # 如果中科大源不行，可以换成清华源：
 # [source.tuna]
 # registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
+
+# Android 交叉编译链接器配置（使用 NDK LLVM 工具链）
+[target.aarch64-linux-android]
+linker = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang"
