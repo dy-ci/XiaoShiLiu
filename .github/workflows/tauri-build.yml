@@ -118,11 +118,18 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           # Android 签名配置（keystore: dynamic.jks，别名: dyci）
           ANDROID_NDK_HOME: ${{ matrix.os == 'aarch64-linux-android' && steps.setup-ndk.outputs.ndk-path || '' }}
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ matrix.os == 'aarch64-linux-android' && format('{0}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang', steps.setup-ndk.outputs.ndk-path) || '' }}
           TAURI_ANDROID_KEYSTORE_PATH: ${{ matrix.os == 'aarch64-linux-android' && '/tmp/dynamic.jks' || '' }}
           TAURI_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           TAURI_ANDROID_KEY_ALIAS: dyci
           TAURI_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: npm run tauri build -- --target ${{ matrix.os }} ${{ (matrix.os == 'x86_64-pc-windows-msvc') && '--bundles nsis' || '' }}
+
+      # 调试：列出实际产物路径
+      - name: List build outputs
+        run: |
+          echo "=== target/${{ matrix.os }}/release/ ==="
+          find vue3-project/src-tauri/target/${{ matrix.os }}/release/ -maxdepth 3 -type f 2>/dev/null || echo "目录不存在或为空"
 
       # 上传构建产物
       - name: Upload artifacts
@@ -130,7 +137,12 @@ jobs:
         with:
           name: dynamic-${{ matrix.os }}-${{ github.sha }}
           path: |
-            vue3-project/src-tauri/target/${{ matrix.os }}/release/bundle/**/*.{dmg,app,deb,AppImage,msi,exe,nupkg,aab,apk,ipa}
+            vue3-project/src-tauri/target/${{ matrix.os }}/release/bundle/
+            vue3-project/src-tauri/target/${{ matrix.os }}/release/*.exe
+            vue3-project/src-tauri/target/${{ matrix.os }}/release/*.dmg
+            vue3-project/src-tauri/target/${{ matrix.os }}/release/*.aab
+            vue3-project/src-tauri/target/${{ matrix.os }}/release/*.apk
+            vue3-project/src-tauri/target/${{ matrix.os }}/release/*.ipa
           if-no-files-found: warn
           retention-days: 30
 
