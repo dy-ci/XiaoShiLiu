@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 悦社动态社区 - Vite配置文件
  * 
  * @author ZTMYO
@@ -25,6 +25,10 @@ function getGitSha() {
 }
 
 const gitSha = getGitSha()
+
+// 获取当前模式，staging 模式使用线上API代理
+const isStaging = process.env.NODE_ENV === 'production' && process.env.VITE_API_BASE_URL === '/api'
+const apiTarget = isStaging ? 'https://dy.ci' : 'http://localhost:3001'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -53,7 +57,7 @@ export default defineConfig({
       ],  */
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',//后端接口地址
+        target: apiTarget,//后端接口地址
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '/api')
       },

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch, defineProps } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as skinview3d from 'skinview3d'
 
 const props = defineProps({

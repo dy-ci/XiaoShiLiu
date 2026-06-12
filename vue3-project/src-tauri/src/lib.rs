@@ -14,7 +14,7 @@ pub fn run() {
         .setup(|app| {
             // 单实例插件：防止协议回调时打开第二个窗口（仅桌面端）
             #[cfg(desktop)]
-            app.handle().plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let _ = app.handle().plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
                 println!("[Tauri] 单实例收到外部启动参数: {:?}", args);
                 for arg in &args {
                     if arg.starts_with("dynamic://") || arg.starts_with("com.zhaishis.dynamic://") {

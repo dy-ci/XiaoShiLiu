@@ -187,9 +187,8 @@ jobs:
         with:
           name: dynamic-aarch64-linux-android-${{ github.sha }}
           path: |
-            vue3-project/src-tauri/target/aarch64-linux-android/release/bundle/
-            vue3-project/src-tauri/gen/android/**/*.{apk,aab}
-          if-no-files-found: warn
+            vue3-project/src-tauri/gen/android/app/build/outputs/apk/
+            vue3-project/src-tauri/gen/android/app/build/outputs/bundle/
           retention-days: 30
 
   # iOS 构建
@@ -254,9 +253,7 @@ jobs:
         with:
           name: dynamic-aarch64-apple-ios-${{ github.sha }}
           path: |
-            vue3-project/src-tauri/target/aarch64-apple-ios/release/bundle/
-            vue3-project/src-tauri/gen/apple/**/*.ipa
-          if-no-files-found: warn
+            vue3-project/src-tauri/gen/apple/
           retention-days: 30
 
   release:
