@@ -1,0 +1,157 @@
+name: Build Tauri App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-tauri:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            os: darwin-aarch64
+          - platform: ubuntu-latest
+            os: linux-x86_64-gnu
+          - platform: windows-latest
+            os: windows-x86_64
+          - platform: macos-14
+            os: ios-aarch64
+          - platform: ubuntu-latest
+            os: android-arm64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      # 检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 安装 Rust 工具链（iOS/Android 需要额外 target）
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ (matrix.os == 'ios-aarch64' && 'aarch64-apple-ios') || (matrix.os == 'android-arm64' && 'aarch64-linux-android') || '' }}
+
+      # 安装系统依赖（Linux 需要 GTK/WebKit 等库）
+      - name: Install system dependencies (Linux)
+        if: matrix.platform == 'ubuntu-latest' && matrix.os != 'android-arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      # Android：安装 NDK 和 SDK 构建工具
+      - name: Install Android NDK
+        if: matrix.os == 'android-arm64'
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+          local-cache: true
+
+      # 配置 Rust 缓存
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            vue3-project/src-tauri/target/
+          key: tauri-${{ runner.os }}-${{ hashFiles('vue3-project/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            tauri-${{ runner.os }}-
+
+      # iOS：配置 Xcode
+      - name: Setup Xcode (iOS)
+        if: matrix.os == 'ios-aarch64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # 安装 Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: vue3-project/package-lock.json
+
+      # 安装前端依赖并构建前端（自动读取 .env.production）
+      - name: Install frontend dependencies and build
+        working-directory: vue3-project
+        run: npm ci && npm run build
+
+      # 准备签名密钥（桌面端）
+      - name: Setup Tauri signing key
+        if: contains(matrix.os, 'darwin') || contains(matrix.os, 'linux-x86_64') || contains(matrix.os, 'windows')
+        env:
+          TAURI_PRIVATE_KEY_CONTENT: ${{ secrets.TAURI_PRIVATE_KEY }}
+        working-directory: vue3-project
+        run: |
+          mkdir -p "$HOME/.tauri"
+          echo "$TAURI_PRIVATE_KEY_CONTENT" > "$HOME/.tauri/com.zhaishis.dynamic.key"
+
+      # 准备 Android 签名密钥库（JKS）
+      - name: Setup Android keystore
+        if: matrix.os == 'android-arm64'
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > /tmp/dynamic.jks
+
+      # 构建 Tauri 应用
+      - name: Build Tauri app (${{ matrix.os }})
+        working-directory: vue3-project
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          # Android 签名配置（keystore: dynamic.jks，别名: dyci）
+          ANDROID_NDK_HOME: ${{ matrix.os == 'android-arm64' && env.ANDROID_NDK_LATEST_HOME || '' }}
+          TAURI_ANDROID_KEYSTORE_PATH: ${{ matrix.os == 'android-arm64' && '/tmp/dynamic.jks' || '' }}
+          TAURI_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          TAURI_ANDROID_KEY_ALIAS: dyci
+          TAURI_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: npm run tauri build -- --target ${{ matrix.os }}
+
+      # 上传构建产物
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dynamic-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            vue3-project/src-tauri/target/release/bundle/*.{dmg,app,deb,AppImage,msi,exe,nupkg,aab,apk,ipa}
+          if-no-files-found: warn
+          retention-days: 30
+
+  release:
+    needs: build-tauri
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
