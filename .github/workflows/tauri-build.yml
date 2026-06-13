@@ -199,7 +199,8 @@ jobs:
 
   # Windows Debug 构建（带 F12 开发者工具，用于排查打包后网络错误）
   publish-windows-debug:
-    if: github.event.inputs.build_debug_windows == 'true'
+    name: Build Windows (Debug + F12)
+    if: inputs.build_debug_windows
     runs-on: windows-latest
 
     steps:
@@ -207,6 +208,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Verify debug flag
+        run: |
+          echo "build_debug_windows = ${{ inputs.build_debug_windows }}"
+          echo "Running Windows debug build with --debug flag"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
