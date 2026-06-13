@@ -49,7 +49,7 @@ const config = {
 
   // CORS配置（包含 Web 线上、开发环境、Tauri 桌面端）
   cors: {
-    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()) : ['http://localhost:5173', 'http://localhost:3001', 'https://dy.ci', 'https://tauri.localhost']
+    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()) : ['http://localhost:5173', 'http://localhost:3001', 'https://dy.ci', 'https://tauri.localhost', 'http://tauri.localhost', 'http://ipc.localhost']
   },
 
   // JWT配置
