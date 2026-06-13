@@ -86,7 +86,7 @@
               <UserDisplay
                 :user="{ user_id: authorData.id, avatar: authorData.avatar, nickname: authorData.name }"
                 :userId="authorData.id"
-                avatarSize="md"
+                avatarSize="sm"
                 :clickable="true"
                 @click="onUserClick(authorData.id)"
                 class="detail-author-display"
