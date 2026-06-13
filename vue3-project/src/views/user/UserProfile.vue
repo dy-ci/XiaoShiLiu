@@ -260,7 +260,7 @@ onMounted(async () => {
         <UserDisplay
           :user="userInfo"
           :userId="userInfo.user_id"
-          avatarSize="xl"
+          avatarSize="lg"
           :clickable="false"
           class="profile-user-display"
         >
