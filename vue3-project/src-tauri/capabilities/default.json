@@ -1,1 +1,1 @@
-{"identifier": "default", "description": "Default capability for the main window", "windows": ["main"], "permissions": ["core:default", "shell:allow-open", "shell:default"]}
+{"identifier": "default", "description": "Default capability for the main window", "windows": ["main"], "permissions": ["core:default", "shell:allow-open", "shell:default", {"identifier": "http:default", "allow": [{"url": "https://dy.ci/**"}, {"url": "https://s3.dy.ci/**"}, {"url": "https://auth.yun/**"}], "deny": []}]}
