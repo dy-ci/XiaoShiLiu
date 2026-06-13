@@ -222,9 +222,6 @@
                         <span v-if="isPostAuthorComment(comment)" class="author-badge author-badge--parent">
                           作者
                         </span>
-                        <div v-if="isPostAuthorComment(comment)" class="author-badge author-badge--parent">
-                          作者
-                        </div>
                       </div>
                       <button v-if="isCurrentUserComment(comment)" class="comment-delete-btn"
                         @click="handleDeleteComment(comment)">
