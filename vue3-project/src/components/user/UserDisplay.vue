@@ -178,4 +178,14 @@ function handleClick() {
 .user-display--vertical .user-display__info {
   align-items: center;
 }
+
+@media (max-width: 768px) {
+  .user-display {
+    gap: 6px;
+  }
+
+  .user-display__info {
+    gap: 1px;
+  }
+}
 </style>

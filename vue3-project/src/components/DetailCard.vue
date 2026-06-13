@@ -4622,4 +4622,38 @@ function handleAvatarError(event) {
     font-size: 15px;
   }
 }
+
+/* 移动端：帖子卡片头像和用户名缩小 */
+@media (max-width: 768px) {
+  .author-avatar {
+    width: 32px;
+    height: 32px;
+  }
+
+  .author-name {
+    font-size: 14px;
+  }
+
+  .author-info {
+    gap: 6px;
+  }
+
+  .comment-avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .comment-avatar-container {
+    width: 28px;
+    height: 28px;
+  }
+
+  .user-display {
+    gap: 6px;
+  }
+
+  .user-display__info {
+    gap: 1px;
+  }
+}
 </style>

@@ -451,4 +451,25 @@ img {
     right: 0;
     left: auto;
 }
+
+/* 移动端：固定高度 72px，不随 safe-area 变大 */
+@media (max-width: 695px) {
+    header {
+        height: 72px !important;
+    }
+
+    .logo {
+        width: 56px;
+        height: 26px;
+    }
+
+    img {
+        width: 56px;
+        height: 26px;
+    }
+
+    .header-container {
+        padding: 0 12px;
+    }
+}
 </style>
