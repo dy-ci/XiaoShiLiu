@@ -12,7 +12,8 @@
     "preview": "vite build && vite preview --host",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:debug": "tauri build --debug --bundles nsis"
   },
   "dependencies": {
     "@logto/vue": "^3.0.0",

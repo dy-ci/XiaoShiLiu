@@ -251,7 +251,7 @@ jobs:
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-        run: npm run tauri build -- --debug --bundles nsis
+        run: npm run tauri:build:debug
 
       - name: List build outputs
         shell: bash
