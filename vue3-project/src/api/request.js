@@ -30,6 +30,16 @@ request.interceptors.request.use(
   config => {
     config.withCredentials = true
 
+    const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData
+    if (isFormData && config.headers) {
+      if (typeof config.headers.delete === 'function') {
+        config.headers.delete('Content-Type')
+      } else {
+        delete config.headers['Content-Type']
+        delete config.headers['content-type']
+      }
+    }
+
     // 对 admin 路径的请求，自动附加 admin_token（确保代理场景下认证正常）
     const url = config.url || ''
     if (url.startsWith('/admin') || url.startsWith('/api/admin')) {
