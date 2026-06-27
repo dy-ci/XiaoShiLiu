@@ -90,7 +90,12 @@ const apiLimiter = rateLimit({
   max: 500,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false }
+  validate: { xForwardedForHeader: false },
+  keyGenerator: (req) => {
+    let ip = req.ip || req.connection.remoteAddress;
+    if (ip && ip.includes(':')) ip = ip.split(':')[0];
+    return ip;
+  }
 });
 
 const authLimiter = rateLimit({
@@ -98,7 +103,12 @@ const authLimiter = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false }
+  validate: { xForwardedForHeader: false },
+  keyGenerator: (req) => {
+    let ip = req.ip || req.connection.remoteAddress;
+    if (ip && ip.includes(':')) ip = ip.split(':')[0];
+    return ip;
+  }
 });
 
 const uploadLimiter = rateLimit({
@@ -106,7 +116,12 @@ const uploadLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false }
+  validate: { xForwardedForHeader: false },
+  keyGenerator: (req) => {
+    let ip = req.ip || req.connection.remoteAddress;
+    if (ip && ip.includes(':')) ip = ip.split(':')[0];
+    return ip;
+  }
 });
 
 // MC游戏功能速率限制器
@@ -117,7 +132,12 @@ const yggdrasilAuthLimiter = rateLimit({
   message: { error: 'Too Many Requests', errorMessage: '登录请求过于频繁，请稍后重试' },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false }
+  validate: { xForwardedForHeader: false },
+  keyGenerator: (req) => {
+    let ip = req.ip || req.connection.remoteAddress;
+    if (ip && ip.includes(':')) ip = ip.split(':')[0];
+    return ip;
+  }
 });
 
 // 会话/查询等接口宽松限流（避免进服被限流）
@@ -127,7 +147,12 @@ const yggdrasilLimiter = rateLimit({
   message: { error: 'Too Many Requests', errorMessage: '请求过于频繁，请稍后重试' },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false }
+  validate: { xForwardedForHeader: false },
+  keyGenerator: (req) => {
+    let ip = req.ip || req.connection.remoteAddress;
+    if (ip && ip.includes(':')) ip = ip.split(':')[0];
+    return ip;
+  }
 });
 
 const gameLimiter = rateLimit({
@@ -136,7 +161,12 @@ const gameLimiter = rateLimit({
   message: { code: 429, message: '请求过于频繁，请稍后重试' },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false }
+  validate: { xForwardedForHeader: false },
+  keyGenerator: (req) => {
+    let ip = req.ip || req.connection.remoteAddress;
+    if (ip && ip.includes(':')) ip = ip.split(':')[0];
+    return ip;
+  }
 });
 
 // 中间件配置
