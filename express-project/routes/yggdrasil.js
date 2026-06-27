@@ -43,47 +43,44 @@ const {
   hashPassword
 } = require('../utils/yggdrasilHelper');
 
-// 内存存储用于serverId验证（生产环境建议使用Redis）
-// 设置最大容量和过期时间，防止内存泄漏
+// 统一日志函数
+function routeLog(level, message, data = null) {
+  const timestamp = new Date().toISOString();
+  const prefix = `[Yggdrasil-${level.toUpperCase()}] ${timestamp}`;
+  if (data !== null) {
+    console.log(`${prefix} ${message}`, JSON.stringify(data));
+  } else {
+    console.log(`${prefix} ${message}`);
+  }
+}
+
+// 内存存储用于serverId验证
 const MAX_SERVER_ID_CACHE_SIZE = 5000;
-const SERVER_ID_CACHE_TTL = 30000; // 30秒
+const SERVER_ID_CACHE_TTL = 30000;
 const serverIdCache = new Map();
 
-// 材质代理允许的图片URL域名白名单
+// 材质代理白名单
 const TEXTURE_PROXY_WHITELIST = [
   's3.dy.ci'
 ];
 
-/**
- * 验证材质URL是否安全，防止SSRF攻击
- * @param {string} url - 要验证的URL
- * @returns {boolean} - 是否安全
- */
 function isValidTextureUrl(url) {
   try {
     const parsedUrl = new URL(url);
-    
-    // 只允许 http 和 https 协议
     if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
       return false;
     }
-    
-    // 检查是否在白名单中
     const hostname = parsedUrl.hostname.toLowerCase();
     const isWhitelisted = TEXTURE_PROXY_WHITELIST.some(domain => 
       hostname === domain || hostname.endsWith('.' + domain)
     );
-    
     if (!isWhitelisted) {
       console.warn(`[Yggdrasil] 材质代理拒绝非白名单域名: ${hostname}`);
       return false;
     }
-    
-    // 禁止访问内网IP
     const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
     if (ipv4Pattern.test(hostname)) {
       const parts = hostname.split('.').map(Number);
-      // 检查是否是内网IP
       if (parts[0] === 10 || 
           (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) || 
           (parts[0] === 192 && parts[1] === 168) ||
@@ -93,12 +90,9 @@ function isValidTextureUrl(url) {
         return false;
       }
     }
-    
-    // 禁止IPv6本地地址
     if (hostname === '[::1]' || hostname === '::1') {
       return false;
     }
-    
     return true;
   } catch (error) {
     console.error('[Yggdrasil] URL验证失败:', error.message);
@@ -106,16 +100,14 @@ function isValidTextureUrl(url) {
   }
 }
 
-// 代理 URL 函数：直接返回原始 URL（不再走代理）
 function getProxyUrl(originalUrl, req) {
   return originalUrl;
 }
 
-// 配置 multer 内存存储
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 2 * 1024 * 1024 // 2MB限制
+    fileSize: 2 * 1024 * 1024
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'image/png') {
@@ -126,7 +118,6 @@ const upload = multer({
   }
 });
 
-// 设置 ALI 响应头
 router.use((req, res, next) => {
   res.setHeader('X-Authlib-Injector-API-Location', '/api/yggdrasil/');
   next();
@@ -137,21 +128,15 @@ router.use((req, res, next) => {
   next();
 });
 
-// ========== API 元数据获取 ==========
+// ========== API 元数据 ==========
 router.get('/', (req, res) => {
-  console.log('[Yggdrasil] 请求API元数据');
+  routeLog('info', '请求API元数据');
   
   const baseUrl = `${req.protocol}://${req.get('host')}`;
-  
-  // 获取签名公钥（从 keys/yggdrasil-public.pem 读取）
   const signaturePublicKey = getSignaturePublicKey();
-
-  // 从 .env 读取额外的皮肤域名白名单（逗号分隔）
   const extraSkinDomains = process.env.SKIN_DOMAINS 
     ? process.env.SKIN_DOMAINS.split(',').map(d => d.trim()).filter(Boolean)
     : [];
-
-  // 构建皮肤域名白名单（去重）
   const serverHost = new URL(baseUrl).hostname;
   const defaultDomains = ['.minecraft.net', '.mojang.com'];
   const allDomains = [...new Set([...defaultDomains, serverHost, ...extraSkinDomains])];
@@ -176,25 +161,31 @@ router.get('/', (req, res) => {
   });
 });
 
-// ========== 认证服务 (Auth Server) ==========
-
+// ========== 认证 ==========
 router.post('/authserver/authenticate', async (req, res) => {
   try {
     let { username, password, clientToken, requestUser, agent } = req.body;
 
+    routeLog('info', '认证请求开始', { username, hasPassword: !!password, hasClientToken: !!clientToken });
+
     if (!username || !password) {
+      routeLog('warn', '认证失败: 缺少用户名或密码');
       return res.status(403).json(buildErrorResponse(
         'ForbiddenOperationException',
         'Invalid credentials. Invalid username or password.'
       ));
     }
 
-    // 自动去除 @dy.ci 后缀，兼容只认邮箱的启动器
+    const originalUsername = username;
     username = username.replace(/@dy\.ci$/i, '');
+    if (originalUsername !== username) {
+      routeLog('debug', '用户名已去除后缀', { original: originalUsername, cleaned: username });
+    }
 
     const profile = await getProfileByName(username);
 
     if (!profile) {
+      routeLog('warn', '认证失败: 用户不存在', { username });
       await auditLog('LOGIN_FAILED', null, null, req.ip, { reason: 'user_not_found', username });
       return res.status(403).json(buildErrorResponse(
         'ForbiddenOperationException',
@@ -202,7 +193,10 @@ router.post('/authserver/authenticate', async (req, res) => {
       ));
     }
 
+    routeLog('debug', '找到用户资料', { username, profileId: profile.id, userId: profile.user_id });
+
     if (profile.is_banned) {
+      routeLog('warn', '认证失败: 角色已被封禁', { username, profileId: profile.id });
       return res.status(403).json(buildErrorResponse(
         'ForbiddenOperationException',
         '该角色已被封禁'
@@ -210,10 +204,10 @@ router.post('/authserver/authenticate', async (req, res) => {
     }
 
     let valid = await verifyPassword(password, profile.password_hash);
+    routeLog('debug', '主密码验证结果', { username, valid });
     let isTempPassword = false;
     let tempPasswordRecord = null;
 
-    // 如果原密码不匹配，检查临时密码
     if (!valid) {
       const db = getDB();
       const now = new Date();
@@ -224,11 +218,13 @@ router.post('/authserver/authenticate', async (req, res) => {
         .first();
 
       if (tempPasswordRecord) {
+        routeLog('debug', '存在有效的临时密码记录', { tempId: tempPasswordRecord.id, maxUses: tempPasswordRecord.max_uses, used: tempPasswordRecord.used_count });
         const tempValid = await verifyPassword(password, tempPasswordRecord.temp_password_hash);
+        routeLog('debug', '临时密码验证结果', { tempValid });
 
         if (tempValid) {
-          // 检查是否已用完
           if (tempPasswordRecord.used_count >= tempPasswordRecord.max_uses) {
+            routeLog('warn', '临时密码已用完', { tempId: tempPasswordRecord.id });
             await auditLog('LOGIN_FAILED', profile.user_id, profile.id, req.ip, {
               reason: 'temp_password_depleted',
               temp_id: tempPasswordRecord.id
@@ -239,7 +235,6 @@ router.post('/authserver/authenticate', async (req, res) => {
             ));
           }
 
-          // 更新使用次数
           await db('mc_temp_passwords')
             .where({ id: tempPasswordRecord.id })
             .update({
@@ -248,7 +243,6 @@ router.post('/authserver/authenticate', async (req, res) => {
               last_used_ip: req.ip
             });
 
-          // 如果用完了，自动撤销
           if (tempPasswordRecord.used_count + 1 >= tempPasswordRecord.max_uses) {
             await db('mc_temp_passwords')
               .where({ id: tempPasswordRecord.id })
@@ -257,6 +251,7 @@ router.post('/authserver/authenticate', async (req, res) => {
                 revoked_at: new Date(),
                 revoke_reason: '使用次数耗尽'
               });
+            routeLog('info', '临时密码因次数耗尽被自动撤销', { tempId: tempPasswordRecord.id });
           }
 
           valid = true;
@@ -270,10 +265,13 @@ router.post('/authserver/authenticate', async (req, res) => {
 
           console.log(`[Yggdrasil] 用户 ${username} 使用临时密码登录 (剩余 ${tempPasswordRecord.max_uses - tempPasswordRecord.used_count - 1} 次)`);
         }
+      } else {
+        routeLog('debug', '没有可用的临时密码');
       }
     }
 
     if (!valid) {
+      routeLog('warn', '认证失败: 密码错误', { username, profileId: profile.id });
       await auditLog('LOGIN_FAILED', profile.user_id, profile.id, req.ip, { reason: 'wrong_password' });
       return res.status(403).json(buildErrorResponse(
         'ForbiddenOperationException',
@@ -286,6 +284,7 @@ router.post('/authserver/authenticate', async (req, res) => {
     const refreshToken = generateRefreshToken();
 
     await invalidateAllTokens(profile.id);
+    routeLog('debug', '已撤销角色旧Token', { profileId: profile.id });
 
     await saveTokens(
       profile.id,
@@ -303,12 +302,11 @@ router.post('/authserver/authenticate', async (req, res) => {
     });
 
     const response = buildAuthResponse(profile, accessToken, finalClientToken);
-
-    console.log(`[Yggdrasil] 用户 ${username} 认证成功`);
+    routeLog('info', '认证成功', { username, profileId: profile.id, tokenPrefix: accessToken.substring(0, 20) });
     res.json(response);
 
   } catch (error) {
-    console.error('[Yggdrasil] authenticate 错误:', error);
+    routeLog('error', 'authenticate 内部错误', { error: error.message, stack: error.stack });
     res.status(500).json(buildErrorResponse(
       'InternalServerError',
       '服务器内部错误'
@@ -320,7 +318,10 @@ router.post('/authserver/refresh', async (req, res) => {
   try {
     const { accessToken, clientToken, requestUser, selectedProfile } = req.body;
 
+    routeLog('info', 'Token刷新请求', { tokenPrefix: accessToken?.substring(0, 20), hasClientToken: !!clientToken });
+
     if (!accessToken) {
+      routeLog('warn', '刷新失败: 缺少accessToken');
       return res.status(403).json(buildErrorResponse(
         'ForbiddenOperationException',
         'Invalid token.'
@@ -330,6 +331,7 @@ router.post('/authserver/refresh', async (req, res) => {
     const tokenRecord = await findTokenByAccessToken(accessToken);
 
     if (!tokenRecord) {
+      routeLog('warn', '刷新失败: Token无效', { tokenPrefix: accessToken.substring(0, 20) });
       return res.status(403).json(buildErrorResponse(
         'ForbiddenOperationException',
         'Invalid token.'
@@ -337,6 +339,7 @@ router.post('/authserver/refresh', async (req, res) => {
     }
 
     if (clientToken && tokenRecord.client_token !== clientToken) {
+      routeLog('warn', '刷新失败: clientToken不匹配', { tokenPrefix: accessToken.substring(0, 20) });
       return res.status(403).json(buildErrorResponse(
         'ForbiddenOperationException',
         'Invalid token.'
@@ -367,7 +370,6 @@ router.post('/authserver/refresh', async (req, res) => {
         id: formatUuid(tokenRecord.uuid),
         name: tokenRecord.player_name
       };
-
       response.user = {
         id: crypto.createHash('md5').update(String(tokenRecord.user_id)).digest('hex'),
         properties: []
@@ -380,10 +382,11 @@ router.post('/authserver/refresh', async (req, res) => {
     }
 
     console.log(`[Yggdrasil] Token 刷新成功 用户: ${tokenRecord.player_name}`);
+    routeLog('info', 'Token刷新成功', { playerName: tokenRecord.player_name });
     res.json(response);
 
   } catch (error) {
-    console.error('[Yggdrasil] refresh 错误:', error);
+    routeLog('error', 'refresh 错误', { error: error.message });
     res.status(500).json(buildErrorResponse(
       'InternalServerError',
       '服务器内部错误'
@@ -396,53 +399,55 @@ router.post('/authserver/validate', async (req, res) => {
     const { accessToken, clientToken } = req.body;
 
     if (!accessToken) {
-      console.log('[Yggdrasil] Validate失败: 缺少accessToken');
+      routeLog('warn', 'Validate失败: 缺少accessToken');
       return res.status(403).end();
     }
 
-    // 使用增强版的查询，已包含 is_revoked 检查
     const tokenRecord = await findTokenByAccessToken(accessToken);
 
     if (!tokenRecord) {
-      // Token 无效：可能被撤销、过期或不存在
       const db = getDB();
 
-      // 检查是否被撤销
       const revokedToken = await db('yggdrasil_tokens')
         .where('access_token', accessToken)
         .where('is_revoked', 1)
         .first();
 
       if (revokedToken) {
-        console.log(`[Yggdrasil] ❌ Validate失败: Token已被撤销 - 原因: ${revokedToken.revoked_reason}, 时间: ${revokedToken.revoked_at}`);
+        routeLog('warn', 'Validate失败: Token已被撤销', {
+          reason: revokedToken.revoked_reason,
+          revokedAt: revokedToken.revoked_at
+        });
+        console.log(`[Yggdrasil] Validate失败: Token已被撤销 - 原因: ${revokedToken.revoked_reason}, 时间: ${revokedToken.revoked_at}`);
       } else {
-        // 检查是否过期
         const expiredToken = await db('yggdrasil_tokens')
           .where('access_token', accessToken)
           .first();
 
         if (expiredToken) {
-          console.log(`[Yggdrasil] ❌ Validate失败: Token已过期 - 过期时间: ${expiredToken.expires_at}`);
+          routeLog('warn', 'Validate失败: Token已过期', { expiresAt: expiredToken.expires_at });
+          console.log(`[Yggdrasil] Validate失败: Token已过期 - 过期时间: ${expiredToken.expires_at}`);
         } else {
-          console.log('[Yggdrasil] ❌ Validate失败: Token不存在');
+          routeLog('warn', 'Validate失败: Token不存在');
+          console.log('[Yggdrasil] Validate失败: Token不存在');
         }
       }
 
-      // 返回 403 → 启动器会认为 token 无效，阻止启动游戏
       return res.status(403).end();
     }
 
     if (clientToken && tokenRecord.client_token !== clientToken) {
-      console.log(`[Yggdrasil] ❌ Validate失败: clientToken不匹配`);
+      routeLog('warn', 'Validate失败: clientToken不匹配');
+      console.log('[Yggdrasil] Validate失败: clientToken不匹配');
       return res.status(403).end();
     }
 
-    // Token 有效 → 返回 204 → 启动器允许启动游戏
-    console.log(`[Yggdrasil] ✅ Validate成功: 用户=${tokenRecord.player_name}, Token有效`);
+    routeLog('info', 'Validate成功', { playerName: tokenRecord.player_name });
+    console.log(`[Yggdrasil] Validate成功: 用户=${tokenRecord.player_name}, Token有效`);
     res.status(204).end();
 
   } catch (error) {
-    console.error('[Yggdrasil] validate 错误:', error);
+    routeLog('error', 'validate 内部错误', { error: error.message });
     res.status(403).end();
   }
 });
@@ -451,7 +456,10 @@ router.post('/authserver/signout', async (req, res) => {
   try {
     const { username, password } = req.body;
 
+    routeLog('info', '登出请求', { username });
+
     if (!username || !password) {
+      routeLog('warn', '登出失败: 缺少用户名或密码');
       return res.status(403).json(buildErrorResponse(
         'ForbiddenOperationException',
         '缺少用户名或密码'
@@ -461,24 +469,27 @@ router.post('/authserver/signout', async (req, res) => {
     const profile = await getProfileByName(username);
 
     if (!profile) {
+      routeLog('debug', '登出: 用户不存在，返回204');
       return res.status(204).end();
     }
 
     const valid = await verifyPassword(password, profile.password_hash);
+    routeLog('debug', '登出密码验证结果', { valid });
     
     if (!valid) {
+      routeLog('debug', '登出: 密码错误，返回204');
       return res.status(204).end();
     }
 
-    const deletedCount = await invalidateAllTokens(profile.id);
-
+    await invalidateAllTokens(profile.id);
     await auditLog('SIGNOUT', profile.user_id, profile.id, req.ip);
 
+    routeLog('info', '登出成功', { username });
     console.log(`[Yggdrasil] 用户 ${username} 登出成功`);
     res.status(204).end();
 
   } catch (error) {
-    console.error('[Yggdrasil] signout 错误:', error);
+    routeLog('error', 'signout 错误', { error: error.message });
     res.status(500).json(buildErrorResponse(
       'InternalServerError',
       '服务器内部错误'
@@ -490,26 +501,31 @@ router.post('/authserver/invalidate', async (req, res) => {
   try {
     const { accessToken, clientToken } = req.body;
 
+    routeLog('info', 'Token失效请求', { tokenPrefix: accessToken?.substring(0, 20) });
+
     if (!accessToken) {
       return res.status(204).end();
     }
 
     const success = await invalidateToken(accessToken);
+    routeLog('debug', 'invalidate 结果', { success });
     res.status(204).end();
 
   } catch (error) {
-    console.error('[Yggdrasil] invalidate 错误:', error);
+    routeLog('error', 'invalidate 错误', { error: error.message });
     res.status(204).end();
   }
 });
 
-// ========== 会话服务 (Session Server) ==========
-
+// ========== 会话服务 ==========
 router.post('/sessionserver/session/minecraft/join', async (req, res) => {
   try {
     const { accessToken, selectedProfile, serverId } = req.body;
 
+    routeLog('info', 'Join请求', { tokenPrefix: accessToken?.substring(0, 20), selectedProfile, serverId });
+
     if (!accessToken || !selectedProfile || !serverId) {
+      routeLog('warn', 'Join失败: 缺少必要参数');
       return res.status(403).json(buildErrorResponse(
         'ForbiddenOperationException',
         'Invalid token.'
@@ -519,7 +535,6 @@ router.post('/sessionserver/session/minecraft/join', async (req, res) => {
     const tokenRecord = await findTokenByAccessToken(accessToken);
 
     if (!tokenRecord) {
-      // 额外检查：查询token是否存在但已失效，提供更精确的错误提示
       const db = getDB();
       const revokedToken = await db('yggdrasil_tokens as t')
         .where('t.access_token', accessToken)
@@ -529,7 +544,8 @@ router.post('/sessionserver/session/minecraft/join', async (req, res) => {
       let errorMessage = 'Invalid token.';
       if (revokedToken) {
         errorMessage = `Token已失效(${revokedToken.revoked_reason || '未知原因'})，请在启动器中重新登录`;
-        console.log(`[Yggdrasil] ❌ Join失败: Token已被撤销 - 原因: ${revokedToken.revoked_reason}`);
+        routeLog('warn', 'Join失败: Token已被撤销', { reason: revokedToken.revoked_reason });
+        console.log(`[Yggdrasil] Join失败: Token已被撤销 - 原因: ${revokedToken.revoked_reason}`);
         await auditLog('JOIN_FAILED_REVOKED', tokenRecord?.user_id, tokenRecord?.profile_id, req.ip, {
           reason: revokedToken.revoked_reason,
           revoked_at: revokedToken.revoked_at
@@ -540,9 +556,11 @@ router.post('/sessionserver/session/minecraft/join', async (req, res) => {
           .first();
         if (expiredToken) {
           errorMessage = 'Token已过期，请在启动器中重新登录';
-          console.log(`[Yggdrasil] ❌ Join失败: Token已过期 - 过期时间: ${expiredToken.expires_at}`);
+          routeLog('warn', 'Join失败: Token已过期', { expiresAt: expiredToken.expires_at });
+          console.log(`[Yggdrasil] Join失败: Token已过期 - 过期时间: ${expiredToken.expires_at}`);
         } else {
-          console.log(`[Yggdrasil] ❌ Join失败: Token不存在`);
+          routeLog('warn', 'Join失败: Token不存在');
+          console.log('[Yggdrasil] Join失败: Token不存在');
         }
       }
 
@@ -556,6 +574,7 @@ router.post('/sessionserver/session/minecraft/join', async (req, res) => {
     const normalizedRequestUuid = selectedProfile.replace(/-/g, '');
     
     if (normalizedTokenUuid !== normalizedRequestUuid) {
+      routeLog('warn', 'Join失败: UUID不匹配', { tokenUuid: normalizedTokenUuid, requestUuid: normalizedRequestUuid });
       return res.status(403).json(buildErrorResponse(
         'ForbiddenOperationException',
         'Invalid token.'
@@ -565,16 +584,13 @@ router.post('/sessionserver/session/minecraft/join', async (req, res) => {
     const cacheKey = serverId;
     const expireAt = Date.now() + SERVER_ID_CACHE_TTL;
 
-    // 容量超限时清理过期和最旧的条目
     if (serverIdCache.size >= MAX_SERVER_ID_CACHE_SIZE) {
       const now = Date.now();
-      // 先清理已过期的
       for (const [key, val] of serverIdCache.entries()) {
         if (now > val.expireAt) {
           serverIdCache.delete(key);
         }
       }
-      // 仍超出则删除最旧的一半
       if (serverIdCache.size >= MAX_SERVER_ID_CACHE_SIZE) {
         const keysToRemove = Array.from(serverIdCache.keys()).slice(0, Math.floor(MAX_SERVER_ID_CACHE_SIZE / 2));
         keysToRemove.forEach(key => serverIdCache.delete(key));
@@ -591,15 +607,15 @@ router.post('/sessionserver/session/minecraft/join', async (req, res) => {
       expireAt: expireAt
     });
 
-    // 使用setTimeout自动清理（保留原有逻辑，但增加容量保护）
     setTimeout(() => {
       serverIdCache.delete(cacheKey);
     }, SERVER_ID_CACHE_TTL);
 
+    routeLog('info', 'Join成功', { playerName: tokenRecord.player_name, serverId });
     res.status(204).end();
 
   } catch (error) {
-    console.error('[Yggdrasil] join 错误:', error);
+    routeLog('error', 'join 错误', { error: error.message });
     res.status(500).json(buildErrorResponse(
       'InternalServerError',
       '服务器内部错误'
@@ -611,35 +627,39 @@ router.get('/sessionserver/session/minecraft/hasJoined', async (req, res) => {
   try {
     const { username, serverId, ip } = req.query;
 
+    routeLog('info', 'hasJoined请求', { username, serverId, ip });
+
     if (!username || !serverId) {
+      routeLog('debug', 'hasJoined: 缺少参数，返回204');
       return res.status(204).end();
     }
 
     const cacheEntry = serverIdCache.get(serverId);
 
     if (!cacheEntry || Date.now() > cacheEntry.expireAt) {
-      // 缓存不存在或已过期，删除并返回
+      routeLog('debug', 'hasJoined: 缓存不存在或已过期');
       if (cacheEntry) serverIdCache.delete(serverId);
       return res.status(204).end();
     }
 
     if (cacheEntry.playerName !== username) {
+      routeLog('warn', 'hasJoined: 用户名不匹配', { cached: cacheEntry.playerName, requested: username });
       return res.status(204).end();
     }
 
     if (ip && cacheEntry.ip !== ip) {
+      routeLog('warn', 'hasJoined: IP不匹配', { cached: cacheEntry.ip, requested: ip });
       return res.status(204).end();
     }
 
     const profile = await getProfileByUuid(cacheEntry.uuid);
 
     if (!profile || profile.is_banned) {
+      routeLog('warn', 'hasJoined: 角色不存在或已封禁', { uuid: cacheEntry.uuid });
       return res.status(204).end();
     }
 
     const uuid = formatUuid(profile.uuid);
-    
-    // UUID 统一使用无符号格式（去掉横线）
     const unsignedUuid = uuid.replace(/-/g, '');
 
     const texturePayload = {
@@ -665,8 +685,6 @@ router.get('/sessionserver/session/minecraft/hasJoined', async (req, res) => {
     }
 
     const base64Value = Buffer.from(JSON.stringify(texturePayload)).toString('base64');
-    
-    // 对纹理数据进行签名
     const signature = signData(base64Value);
 
     const response = {
@@ -687,6 +705,7 @@ router.get('/sessionserver/session/minecraft/hasJoined', async (req, res) => {
 
     serverIdCache.delete(serverId);
 
+    routeLog('info', 'hasJoined验证成功', { username });
     console.log(`[Yggdrasil] 验证成功: ${username}${signature ? ' (已签名)' : ''}`);
     console.log(`[Yggdrasil] 皮肤URL: ${profile.skin_url}`);
     console.log(`[Yggdrasil] 披风URL: ${profile.cape_url}`);
@@ -695,7 +714,7 @@ router.get('/sessionserver/session/minecraft/hasJoined', async (req, res) => {
     res.json(response);
 
   } catch (error) {
-    console.error('[Yggdrasil] hasJoined 错误:', error);
+    routeLog('error', 'hasJoined 错误', { error: error.message });
     res.status(204).end();
   }
 });
@@ -703,7 +722,6 @@ router.get('/sessionserver/session/minecraft/hasJoined', async (req, res) => {
 router.get('/sessionserver/session/minecraft/profile/:uuid', async (req, res) => {
   try {
     const uuid = req.params.uuid;
-    // unsigned 默认为 true，即不包含签名
     const unsignedParam = req.query.unsigned !== 'false';
 
     console.log(`[Yggdrasil] 查询角色属性: uuid=${uuid}, unsigned=${unsignedParam}`);
@@ -711,6 +729,7 @@ router.get('/sessionserver/session/minecraft/profile/:uuid', async (req, res) =>
     const profile = await getProfileByUuid(uuid);
 
     if (!profile || profile.is_banned) {
+      routeLog('warn', 'session/profile: 角色不存在或已封禁', { uuid });
       console.log(`[Yggdrasil] 角色不存在或已封禁: ${uuid}`);
       res.status(204).end();
       return;
@@ -742,7 +761,6 @@ router.get('/sessionserver/session/minecraft/profile/:uuid', async (req, res) =>
 
     const base64Value = Buffer.from(JSON.stringify(texturePayload)).toString('base64');
     
-    // 构建响应
     const response = {
       id: uuid.replace(/-/g, ''),
       name: profile.player_name,
@@ -758,7 +776,6 @@ router.get('/sessionserver/session/minecraft/profile/:uuid', async (req, res) =>
       ]
     };
 
-    // 仅当 unsigned=false 时才包含签名
     if (!unsignedParam) {
       const signature = signData(base64Value);
       response.properties[0].signature = signature || '';
@@ -767,13 +784,12 @@ router.get('/sessionserver/session/minecraft/profile/:uuid', async (req, res) =>
     res.json(response);
 
   } catch (error) {
-    console.error('[Yggdrasil] sessionserver/profile 错误:', error);
+    routeLog('error', 'sessionserver/profile 错误', { error: error.message });
     res.status(204).end();
   }
 });
 
 // ========== 角色批量查询 ==========
-
 router.post('/api/profiles/minecraft', async (req, res) => {
   try {
     const names = req.body;
@@ -793,10 +809,8 @@ router.post('/api/profiles/minecraft', async (req, res) => {
     }
 
     const results = [];
-
     for (const name of names) {
       if (typeof name !== 'string') continue;
-      
       const profile = await getProfileByName(name);
       if (profile && !profile.is_banned) {
         results.push({
@@ -814,8 +828,7 @@ router.post('/api/profiles/minecraft', async (req, res) => {
   }
 });
 
-// ========== 材质上传 ==========
-
+// ========== 材质上传认证中间件 ==========
 async function verifyTextureAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
@@ -891,6 +904,7 @@ async function validateTexture(buffer, textureType) {
   }
 }
 
+// ========== 材质上传/删除 ==========
 router.put('/api/user/profile/:uuid/:textureType', verifyTextureAuth, upload.single('file'), async (req, res) => {
   try {
     const { uuid, textureType } = req.params;
@@ -945,12 +959,11 @@ router.put('/api/user/profile/:uuid/:textureType', verifyTextureAuth, upload.sin
 
     const fileHash = createFileHash(req.file.buffer);
 
-    // 安全处理：去除所有元数据，防止 PNG Bomb 和恶意代码
     let processedBuffer;
     try {
       processedBuffer = await sharp(req.file.buffer)
         .png()
-        .toBuffer(); // 不保留任何元数据
+        .toBuffer();
     } catch (error) {
       console.error('[Yggdrasil] 图片处理失败:', error);
       return res.status(400).json(buildErrorResponse(
@@ -959,7 +972,6 @@ router.put('/api/user/profile/:uuid/:textureType', verifyTextureAuth, upload.sin
       ));
     }
 
-    // 使用完整 hash 作为文件名（规范要求：文件名必须是材质 hash，不带扩展名）
     const uploadResult = await uploadFile(
       processedBuffer,
       fileHash,
@@ -1104,8 +1116,7 @@ router.use((error, req, res, next) => {
   next(error);
 });
 
-// ========== 材质代理接口 ==========
-// 将皮肤/披风 URL 代理到当前服务器域名，解决跨域和白名单问题
+// ========== 材质代理 ==========
 router.get('/textures', async (req, res) => {
   try {
     const encodedUrl = req.query.url;
@@ -1113,35 +1124,27 @@ router.get('/textures', async (req, res) => {
       return res.status(400).send('Missing URL parameter');
     }
 
-    // 解码原始 URL
     const originalUrl = decodeURIComponent(encodedUrl);
 
-    // 验证 URL 安全性，防止 SSRF 攻击
     if (!isValidTextureUrl(originalUrl)) {
       return res.status(403).send('Forbidden: URL not allowed');
     }
 
     console.log(`[Yggdrasil] 材质代理: ${originalUrl.substring(0, 80)}...`);
 
-    // 获取图片
     const response = await axios.get(originalUrl, {
       responseType: 'arraybuffer',
       timeout: 10000,
-      maxContentLength: 2 * 1024 * 1024, // 限制 2MB
+      maxContentLength: 2 * 1024 * 1024,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       }
     });
 
-    // 设置 CORS 头
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cache-Control', 'public, max-age=86400'); // 缓存一天
-
-    // 判断 Content-Type
+    res.setHeader('Cache-Control', 'public, max-age=86400');
     const contentType = response.headers['content-type'] || 'image/png';
     res.setHeader('Content-Type', contentType);
-
-    // 返回图片内容
     res.send(response.data);
 
   } catch (error) {
